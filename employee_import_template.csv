@@ -1,0 +1,7 @@
+name,email,password,job_title,employment_type,status,phone_number,date_of_birth,gender,start_date,monthly_salary_idr,hourly_rate_idr,address,national_id,emergency_contact_name,emergency_contact_phone,probation_end_date
+John Doe,john.doe@example.com,password123,commis_kitchen,full_time,active,+62812345678,1990-01-15,male,2024-01-01,5000000,0,Jl. Example No. 123 Jakarta,1234567890123456,Jane Doe,+62898765432,2024-04-01
+Jane Smith,jane.smith@example.com,password123,barista,part_time,active,+62823456789,1995-05-20,female,2024-02-01,0,50000,Jl. Coffee Street No. 45 Jakarta,9876543210987654,John Smith,+62887654321,
+Mike Johnson,mike.johnson@example.com,password123,steward,full_time,active,+62834567890,1988-08-10,male,2023-06-15,4500000,0,Jl. Service Road No. 78 Jakarta,1122334455667788,Sarah Johnson,+62876543210,2023-09-15
+Sarah Lee,sarah.lee@example.com,password123,commis_pastry,full_time,active,+62845678901,1992-03-25,female,2024-01-15,5200000,0,Jl. Pastry Lane No. 90 Jakarta,2233445566778899,David Lee,+62865432109,2024-04-15
+David Chen,david.chen@example.com,password123,fnb_service,part_time,active,+62856789012,1998-11-30,male,2024-03-01,0,45000,Jl. Service Ave No. 12 Jakarta,3344556677889900,Lisa Chen,+62854321098,
+Emily Wong,emily.wong@example.com,password123,manager,full_time,active,+62867890123,1985-07-18,female,2022-01-01,8000000,0,Jl. Management St No. 34 Jakarta,4455667788990011,Tom Wong,+62843210987,

@@ -1,0 +1,8 @@
+{
+  "name": "Copy of SUKHAeHub",
+  "description": "Employee management system ",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

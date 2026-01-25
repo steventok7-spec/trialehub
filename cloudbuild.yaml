@@ -1,0 +1,29 @@
+steps:
+- name: "gcr.io/cloud-builders/docker"
+  args: ["build", "-t", "gcr.io/$PROJECT_ID/ehubsukha:$SHORT_SHA", "."]
+
+- name: "gcr.io/cloud-builders/docker"
+  args: ["push", "gcr.io/$PROJECT_ID/ehubsukha:$SHORT_SHA"]
+
+- name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "gcloud"
+  args:
+  - "run"
+  - "deploy"
+  - "ehubsukha"
+  - "--image"
+  - "gcr.io/$PROJECT_ID/ehubsukha:$SHORT_SHA"
+  - "--region"
+  - "us-central1"
+  - "--platform"
+  - "managed"
+  - "--quiet"
+
+images:
+- "gcr.io/$PROJECT_ID/ehubsukha:$SHORT_SHA"
+
+timeout: "1200s"
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _SERVICE_NAME: "ehubsukha"
