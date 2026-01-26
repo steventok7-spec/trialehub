@@ -520,7 +520,9 @@ export class EmployeeDashboardComponent implements OnInit {
     this.dataLoading.set(true);
 
     // Fetch Full Details
-    this.api.getFullEmployeeDetails(this.employee.id).subscribe(details => {
+    this.api.getFullEmployeeDetails(this.employee.id).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(details => {
       this.fullDetails.set(details);
     });
 
@@ -532,7 +534,7 @@ export class EmployeeDashboardComponent implements OnInit {
         const todayRecord = data.attendance.find((att) => att.date === today);
         this.todayAttendance.set(todayRecord || null);
         this.summaryData.set(data.summary || null);
-        this.history.set([...data.attendance].reverse());
+        this.history.set(data.attendance);
         this.dataLoading.set(false);
       },
       error: () => {

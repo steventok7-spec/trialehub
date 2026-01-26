@@ -1,5 +1,6 @@
 import { Injectable, signal, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
+import { supabase } from '../supabase.config';
 
 /** User session data stored in the auth service */
 export interface AuthUser {
@@ -199,6 +200,8 @@ export class AuthService implements OnDestroy {
   }
 
   logout(): void {
+    // Clear Supabase session to prevent token reuse
+    supabase.auth.signOut().catch(err => console.error('Supabase signout failed:', err));
     this.clearSession();
     this.currentUser.set(null);
     this.router.navigate(['/']);

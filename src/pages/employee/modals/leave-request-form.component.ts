@@ -1,8 +1,9 @@
 
-import { Component, input, output, signal } from '@angular/core';
+import { Component, input, output, signal, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { IconComponent } from '../../../components/ui/icon.component';
+import { ToastService } from '../../../services/toast.service';
 
 @Component({
   selector: 'app-leave-request-form',
@@ -62,6 +63,8 @@ import { IconComponent } from '../../../components/ui/icon.component';
   `
 })
 export class LeaveRequestFormComponent {
+  private toast = inject(ToastService);
+
   employeeId = input.required<string>();
   close = output<void>();
   submitRequest = output<any>();
@@ -76,6 +79,12 @@ export class LeaveRequestFormComponent {
   onSubmit(event: Event) {
     event.preventDefault();
     if (!this.formData.fromDate || !this.formData.toDate || !this.formData.reason) {
+      this.toast.error('Please fill in all required fields.');
+      return;
+    }
+    // Validate date range
+    if (new Date(this.formData.toDate) < new Date(this.formData.fromDate)) {
+      this.toast.error('End date cannot be before start date.');
       return;
     }
     this.loading.set(true);
