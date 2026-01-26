@@ -408,8 +408,14 @@ export class AddEditEmployeeFormComponent implements OnInit {
          return;
       }
 
+      // Validate salary based on employment type
       if (this.formData.employment_type === 'full_time' && (!this.formData.monthly_salary_idr || this.formData.monthly_salary_idr <= 0)) {
-         // logic handled
+         this.toast.error('Monthly salary is required for full-time employees.');
+         return;
+      }
+      if (this.formData.employment_type === 'part_time' && (!this.formData.hourly_rate_idr || this.formData.hourly_rate_idr <= 0)) {
+         this.toast.error('Hourly rate is required for part-time employees.');
+         return;
       }
 
       this.loading.set(true);

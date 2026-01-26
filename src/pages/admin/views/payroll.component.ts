@@ -123,11 +123,17 @@ export class AdminPayrollComponent implements OnInit {
     this.loading.set(true);
     const [year, month] = this.selectedMonth.split('-').map(Number);
 
-    this.api.generatePayroll(year, month).then(data => {
-      this.payrollData.set(data);
-      this.totalPayout.set(data.reduce((sum, item) => sum + item.netPay, 0));
-      this.loading.set(false);
-    });
+    this.api.generatePayroll(year, month)
+      .then(data => {
+        this.payrollData.set(data);
+        this.totalPayout.set(data.reduce((sum, item) => sum + item.netPay, 0));
+      })
+      .catch(err => {
+        console.error('Payroll generation failed:', err);
+        this.payrollData.set([]);
+        this.totalPayout.set(0);
+      })
+      .finally(() => this.loading.set(false));
   }
 
   exportToCsv() {

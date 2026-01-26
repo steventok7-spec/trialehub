@@ -1,8 +1,9 @@
 
-import { Component, input, output, signal } from '@angular/core';
+import { Component, input, output, signal, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { IconComponent } from '../../../components/ui/icon.component';
+import { ToastService } from '../../../services/toast.service';
 
 @Component({
   selector: 'app-expense-claim-form',
@@ -36,7 +37,7 @@ import { IconComponent } from '../../../components/ui/icon.component';
                   <label class="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Amount</label>
                   <div class="relative">
                     <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-zinc-400 text-sm font-bold">$</span>
-                    <input type="number" [(ngModel)]="formData.amount" name="amount" step="0.01" placeholder="0.00" required class="w-full pl-8 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent focus:bg-white transition-all text-sm outline-none"/>
+                    <input type="number" [(ngModel)]="formData.amount" name="amount" step="0.01" min="0.01" placeholder="0.00" required class="w-full pl-8 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent focus:bg-white transition-all text-sm outline-none"/>
                   </div>
                 </div>
               </div>
@@ -65,6 +66,8 @@ import { IconComponent } from '../../../components/ui/icon.component';
   `
 })
 export class ExpenseClaimFormComponent {
+  private toast = inject(ToastService);
+
   employeeId = input.required<string>();
   close = output<void>();
   submitRequest = output<any>();
@@ -72,13 +75,19 @@ export class ExpenseClaimFormComponent {
   loading = signal(false);
   formData = {
     date: new Date().toISOString().split('T')[0],
-    amount: null,
+    amount: null as number | null,
     description: ''
   };
 
   onSubmit(event: Event) {
     event.preventDefault();
     if (!this.formData.date || !this.formData.amount || !this.formData.description) {
+      this.toast.error('Please fill in all required fields.');
+      return;
+    }
+    // Validate positive amount
+    if (this.formData.amount <= 0) {
+      this.toast.error('Amount must be greater than zero.');
       return;
     }
     this.loading.set(true);

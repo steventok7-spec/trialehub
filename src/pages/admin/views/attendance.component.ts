@@ -182,7 +182,16 @@ export class AdminAttendance implements OnInit {
   isLate(time: string | null): boolean {
     if (!time) return false;
     try {
+      // Try parsing as ISO date first (from database)
+      const date = new Date(time);
+      if (!isNaN(date.getTime())) {
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        return hours > 9 || (hours === 9 && minutes > 0);
+      }
+      // Fallback: parse locale time string format "10:00 AM"
       const [hourMinute, period] = time.split(' ');
+      if (!period) return false;
       let [hours, minutes] = hourMinute.split(':').map(Number);
       if (period.toLowerCase() === 'pm' && hours < 12) {
         hours += 12;
