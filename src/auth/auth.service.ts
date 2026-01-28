@@ -260,10 +260,63 @@ export class AuthService implements OnDestroy {
   }
 
   /**
-   * Login user - must be called AFTER successful Supabase authentication
-   * This sets the local state based on the authenticated Supabase session
+   * Authenticate user with email and password
+   * This is the main login method - handles Supabase auth + local state in one call
+   * 
+   * @param email - User's email address
+   * @param password - User's password
+   * @returns Promise with success status and optional error message
+   */
+  async loginWithPassword(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Authenticate with Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error || !data.session) {
+        console.error('Supabase auth failed:', error);
+        return {
+          success: false,
+          error: error?.message || 'Invalid credentials'
+        };
+      }
+
+      // 2. Store Supabase session
+      this.supabaseSession = data.session;
+
+      // 3. Fetch and hydrate user profile from database
+      await this.hydrateUserFromSupabase(data.user.id);
+
+      // 4. Verify hydration succeeded
+      if (!this.currentUser()) {
+        return {
+          success: false,
+          error: 'Failed to load user profile'
+        };
+      }
+
+      return { success: true };
+
+    } catch (err) {
+      console.error('Login error:', err);
+      return {
+        success: false,
+        error: 'An unexpected error occurred'
+      };
+    }
+  }
+
+  /**
+   * @deprecated Use loginWithPassword(email, password) instead
+   * 
+   * This method is confusing because it doesn't actually authenticate.
+   * It only sets local state after you've already authenticated elsewhere.
+   * Kept for backward compatibility only.
    */
   login(user: AuthUser | Record<string, unknown> | { [key: string]: unknown }, role: 'owner' | 'employee'): void {
+    console.warn('⚠️  AuthService.login() is deprecated. Use loginWithPassword(email, password) instead.');
     if (!user || typeof user !== 'object') {
       console.error('Invalid user object provided to login');
       return;
@@ -286,17 +339,11 @@ export class AuthService implements OnDestroy {
     this.currentUser.set(authUser);
   }
 
-<<<<<<< HEAD
-  logout(): void {
-    // Clear Supabase session to prevent token reuse
-    supabase.auth.signOut().catch(err => console.error('Supabase signout failed:', err));
-=======
   async logout(): Promise<void> {
     // Sign out from Supabase
     await supabase.auth.signOut();
 
     // Clear local state
->>>>>>> d7e4a9b (chore: update owner email to steventok@sukhapku.com)
     this.clearSession();
     this.currentUser.set(null);
     this.supabaseSession = null;

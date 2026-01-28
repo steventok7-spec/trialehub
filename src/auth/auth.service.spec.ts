@@ -60,13 +60,13 @@ describe('AuthService', () => {
 
   describe('loadUserFromStorage', () => {
     it('should load admin user from localStorage on initialization', () => {
-      const adminUser = { id: 1, username: 'admin' };
-      localStorageMock['admin'] = JSON.stringify(adminUser);
+      const adminUser = { id: 1, username: 'owner' };
+      localStorageMock['owner'] = JSON.stringify(adminUser);
 
       // Recreate service to trigger loadUserFromStorage in constructor
       service = new AuthService(router);
 
-      expect(service.currentUser()).toEqual({ ...adminUser, role: 'admin' });
+      expect(service.currentUser()).toEqual({ ...adminUser, role: 'owner' });
     });
 
     it('should load employee user from localStorage on initialization', () => {
@@ -80,14 +80,14 @@ describe('AuthService', () => {
     });
 
     it('should prioritize admin over employee when both exist in localStorage', () => {
-      const adminUser = { id: 1, username: 'admin' };
+      const adminUser = { id: 1, username: 'owner' };
       const employeeUser = { id: 2, name: 'John Doe' };
-      localStorageMock['admin'] = JSON.stringify(adminUser);
+      localStorageMock['owner'] = JSON.stringify(adminUser);
       localStorageMock['employee'] = JSON.stringify(employeeUser);
 
       service = new AuthService(router);
 
-      expect(service.currentUser()).toEqual({ ...adminUser, role: 'admin' });
+      expect(service.currentUser()).toEqual({ ...adminUser, role: 'owner' });
     });
 
     it('should set currentUser to null when no user data in localStorage', () => {
@@ -104,7 +104,7 @@ describe('AuthService', () => {
 
     it('should return true when a user is logged in', () => {
       const user = { id: 1, username: 'testuser' };
-      service.login(user, 'admin');
+      service.login(user, 'owner');
 
       expect(service.isLoggedIn()).toBe(true);
     });
@@ -112,15 +112,15 @@ describe('AuthService', () => {
 
   describe('hasRole', () => {
     it('should return false when no user is logged in', () => {
-      expect(service.hasRole('admin')).toBe(false);
+      expect(service.hasRole('owner')).toBe(false);
       expect(service.hasRole('employee')).toBe(false);
     });
 
     it('should return true when user has the specified admin role', () => {
-      const adminUser = { id: 1, username: 'admin' };
-      service.login(adminUser, 'admin');
+      const adminUser = { id: 1, username: 'owner' };
+      service.login(adminUser, 'owner');
 
-      expect(service.hasRole('admin')).toBe(true);
+      expect(service.hasRole('owner')).toBe(true);
       expect(service.hasRole('employee')).toBe(false);
     });
 
@@ -129,18 +129,18 @@ describe('AuthService', () => {
       service.login(employeeUser, 'employee');
 
       expect(service.hasRole('employee')).toBe(true);
-      expect(service.hasRole('admin')).toBe(false);
+      expect(service.hasRole('owner')).toBe(false);
     });
   });
 
   describe('login', () => {
     it('should login admin user and store in localStorage', () => {
-      const adminUser = { id: 1, username: 'admin' };
+      const adminUser = { id: 1, username: 'owner' };
 
-      service.login(adminUser, 'admin');
+      service.login(adminUser, 'owner');
 
-      expect(localStorage.setItem).toHaveBeenCalledWith('admin', JSON.stringify(adminUser));
-      expect(service.currentUser()).toEqual({ ...adminUser, role: 'admin' });
+      expect(localStorage.setItem).toHaveBeenCalledWith('owner', JSON.stringify(adminUser));
+      expect(service.currentUser()).toEqual({ ...adminUser, role: 'owner' });
       expect(service.isLoggedIn()).toBe(true);
     });
 
@@ -157,31 +157,31 @@ describe('AuthService', () => {
     it('should update currentUser signal on login', () => {
       const user = { id: 1, username: 'testuser' };
 
-      service.login(user, 'admin');
+      service.login(user, 'owner');
 
-      expect(service.currentUser()).toEqual({ ...user, role: 'admin' });
+      expect(service.currentUser()).toEqual({ ...user, role: 'owner' });
     });
 
     it('should overwrite previous user when logging in as different user', () => {
       const firstUser = { id: 1, username: 'first' };
       const secondUser = { id: 2, username: 'second' };
 
-      service.login(firstUser, 'admin');
+      service.login(firstUser, 'owner');
       expect(service.currentUser()?.username).toBe('first');
 
-      service.login(secondUser, 'admin');
+      service.login(secondUser, 'owner');
       expect(service.currentUser()?.username).toBe('second');
     });
   });
 
   describe('logout', () => {
     it('should clear admin from localStorage', () => {
-      const adminUser = { id: 1, username: 'admin' };
-      service.login(adminUser, 'admin');
+      const adminUser = { id: 1, username: 'owner' };
+      service.login(adminUser, 'owner');
 
       service.logout();
 
-      expect(localStorage.removeItem).toHaveBeenCalledWith('admin');
+      expect(localStorage.removeItem).toHaveBeenCalledWith('owner');
     });
 
     it('should clear employee from localStorage', () => {
@@ -195,7 +195,7 @@ describe('AuthService', () => {
 
     it('should set currentUser to null', () => {
       const user = { id: 1, username: 'testuser' };
-      service.login(user, 'admin');
+      service.login(user, 'owner');
 
       service.logout();
 
@@ -204,7 +204,7 @@ describe('AuthService', () => {
 
     it('should navigate to root path', () => {
       const user = { id: 1, username: 'testuser' };
-      service.login(user, 'admin');
+      service.login(user, 'owner');
 
       service.logout();
 
@@ -213,7 +213,7 @@ describe('AuthService', () => {
 
     it('should make isLoggedIn return false after logout', () => {
       const user = { id: 1, username: 'testuser' };
-      service.login(user, 'admin');
+      service.login(user, 'owner');
       expect(service.isLoggedIn()).toBe(true);
 
       service.logout();
@@ -224,7 +224,7 @@ describe('AuthService', () => {
 
   describe('edge cases', () => {
     it('should handle malformed JSON in localStorage gracefully', () => {
-      localStorageMock['admin'] = 'invalid-json';
+      localStorageMock['owner'] = 'invalid-json';
 
       // This should throw when JSON.parse is called
       expect(() => {
@@ -233,9 +233,9 @@ describe('AuthService', () => {
     });
 
     it('should handle null user object in login', () => {
-      service.login(null, 'admin');
+      service.login({}, 'owner');
 
-      expect(service.currentUser()).toEqual({ role: 'admin' });
+      expect(service.currentUser()).toEqual({ role: 'owner' });
     });
 
     it('should handle empty user object in login', () => {
@@ -248,12 +248,12 @@ describe('AuthService', () => {
   describe('session persistence', () => {
     it('should persist session across service instances', () => {
       const user = { id: 1, username: 'testuser' };
-      service.login(user, 'admin');
+      service.login(user, 'owner');
 
       // Create new service instance (simulating page reload)
       const newService = new AuthService(router);
 
-      expect(newService.currentUser()).toEqual({ ...user, role: 'admin' });
+      expect(newService.currentUser()).toEqual({ ...user, role: 'owner' });
       expect(newService.isLoggedIn()).toBe(true);
     });
   });

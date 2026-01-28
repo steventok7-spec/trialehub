@@ -198,7 +198,7 @@ describe('ApiService', () => {
       };
       mockSupabase.from.mockReturnValue(mockQuery);
 
-      service.employeeLogin({ employeeId: 'john@company.com', pin: '1234' }).subscribe((result) => {
+      service.employeeLogin({ email: 'john@company.com', pin: '1234' }).subscribe((result) => {
         expect(result.success).toBe(true);
         expect(result.employee?.name).toBe('John Doe');
         expect(result.employee?.job_title).toBe('barista');
@@ -212,7 +212,7 @@ describe('ApiService', () => {
         error: { message: 'Invalid login credentials' },
       });
 
-      service.employeeLogin({ employeeId: 'wrong@test.com', pin: 'wrong' }).subscribe((result) => {
+      service.employeeLogin({ email: 'wrong@test.com', pin: 'wrong' }).subscribe((result) => {
         expect(result.success).toBe(false);
         expect(result.error).toBe('Invalid login credentials');
         done();
@@ -237,7 +237,7 @@ describe('ApiService', () => {
       };
       mockSupabase.from.mockReturnValue(mockQuery);
 
-      service.employeeLogin({ employeeId: 'test@test.com', pin: '1234' }).subscribe((result) => {
+      service.employeeLogin({ email: 'test@test.com', pin: '1234' }).subscribe((result) => {
         expect(result.success).toBe(false);
         expect(result.error).toBe('Profile not found.');
         done();

@@ -68,12 +68,24 @@ import { FullEmployeeDetails } from '../../../models';
               
               <!-- 1. Identity & Personal -->
               <section class="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-zinc-100">
-                 <div class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
-                       <app-icon name="user" size="20"/>
+                 <button 
+                    type="button"
+                    (click)="personalInfoExpanded.set(!personalInfoExpanded())"
+                    class="flex items-center justify-between w-full mb-6 group"
+                 >
+                    <div class="flex items-center gap-3">
+                       <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
+                          <app-icon name="user" size="20"/>
+                       </div>
+                       <h3 class="text-lg font-bold text-zinc-900">Personal Information</h3>
                     </div>
-                    <h3 class="text-lg font-bold text-zinc-900">Personal Information</h3>
-                 </div>
+                    <app-icon 
+                       [name]="personalInfoExpanded() ? 'chevron-down' : 'chevron-right'" 
+                       size="20" 
+                       class="text-zinc-400 group-hover:text-zinc-900 transition-all"
+                    />
+                 </button>
+                 @if (personalInfoExpanded()) {
                  
                  <div class="grid md:grid-cols-2 gap-6">
                     <div class="md:col-span-2">
@@ -140,17 +152,30 @@ import { FullEmployeeDetails } from '../../../models';
                       />
                     </div>
                  </div>
+                 }
               </section>
               
               <!-- 2. Address & Emergency -->
               <section class="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-zinc-100">
-                 <div class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
-                       <app-icon name="map-pin" size="20"/>
+                 <button 
+                    type="button"
+                    (click)="addressExpanded.set(!addressExpanded())"
+                    class="flex items-center justify-between w-full mb-6 group"
+                 >
+                    <div class="flex items-center gap-3">
+                       <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
+                          <app-icon name="map-pin" size="20"/>
+                       </div>
+                       <h3 class="text-lg font-bold text-zinc-900">Address & Emergency</h3>
                     </div>
-                    <h3 class="text-lg font-bold text-zinc-900">Address & Emergency</h3>
-                 </div>
+                    <app-icon 
+                       [name]="addressExpanded() ? 'chevron-down' : 'chevron-right'" 
+                       size="20" 
+                       class="text-zinc-400 group-hover:text-zinc-900 transition-all"
+                    />
+                 </button>
 
+                 @if (addressExpanded()) {
                  <div class="grid md:grid-cols-2 gap-6">
                     <div class="md:col-span-2">
                        <label class="block text-sm font-bold text-zinc-700 mb-2">Full Address</label>
@@ -176,17 +201,30 @@ import { FullEmployeeDetails } from '../../../models';
                       />
                     </div>
                  </div>
+                 }
               </section>
 
               <!-- 3. Professional Details -->
               <section class="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-zinc-100">
-                 <div class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
-                       <app-icon name="briefcase" size="20"/>
+                 <button 
+                    type="button"
+                    (click)="roleStatusExpanded.set(!roleStatusExpanded())"
+                    class="flex items-center justify-between w-full mb-6 group"
+                 >
+                    <div class="flex items-center gap-3">
+                       <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
+                          <app-icon name="briefcase" size="20"/>
+                       </div>
+                       <h3 class="text-lg font-bold text-zinc-900">Role & Status</h3>
                     </div>
-                    <h3 class="text-lg font-bold text-zinc-900">Role & Status</h3>
-                 </div>
+                    <app-icon 
+                       [name]="roleStatusExpanded() ? 'chevron-down' : 'chevron-right'" 
+                       size="20" 
+                       class="text-zinc-400 group-hover:text-zinc-900 transition-all"
+                    />
+                 </button>
 
+                 @if (roleStatusExpanded()) {
                  <div class="grid md:grid-cols-2 gap-6">
                     <div>
                        <label class="block text-sm font-bold text-zinc-700 mb-2">Job Title</label>
@@ -246,17 +284,30 @@ import { FullEmployeeDetails } from '../../../models';
                        </div>
                     </div>
                  </div>
+                 }
               </section>
 
               <!-- 4. Compensation -->
                <section class="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-zinc-100">
-                 <div class="flex items-center gap-3 mb-6">
-                    <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
-                       <app-icon name="credit-card" size="20"/>
+                 <button 
+                    type="button"
+                    (click)="compensationExpanded.set(!compensationExpanded())"
+                    class="flex items-center justify-between w-full mb-6 group"
+                 >
+                    <div class="flex items-center gap-3">
+                       <div class="w-10 h-10 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-900">
+                          <app-icon name="credit-card" size="20"/>
+                       </div>
+                       <h3 class="text-lg font-bold text-zinc-900">Compensation</h3>
                     </div>
-                    <h3 class="text-lg font-bold text-zinc-900">Compensation</h3>
-                 </div>
+                    <app-icon 
+                       [name]="compensationExpanded() ? 'chevron-down' : 'chevron-right'" 
+                       size="20" 
+                       class="text-zinc-400 group-hover:text-zinc-900 transition-all"
+                    />
+                 </button>
 
+                 @if (compensationExpanded()) {
                  <div class="grid md:grid-cols-2 gap-6">
                     <div>
                        <label class="block text-sm font-bold text-zinc-700 mb-2">Bank Name</label>
@@ -306,6 +357,7 @@ import { FullEmployeeDetails } from '../../../models';
                        </div>
                     </div>
                  </div>
+                 }
               </section>
 
                <!-- Mobile Save Button (In-Flow) -->
@@ -344,6 +396,12 @@ export class AddEditEmployeeFormComponent implements OnInit {
 
    loading = signal(false);
    formSubmitted = signal(false);
+
+   // Section collapse states (all expanded by default)
+   personalInfoExpanded = signal(true);
+   addressExpanded = signal(true);
+   roleStatusExpanded = signal(true);
+   compensationExpanded = signal(true);
 
    formData = {
       name: '',

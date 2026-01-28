@@ -892,7 +892,10 @@ export class ApiService {
 
       // Fetch all required data in parallel with error handling
       const [employeesResult, attendanceResult, claimsResult] = await Promise.allSettled([
-        supabase.from('profiles').select('*, private_details (*)'),
+        supabase.from('profiles')
+          .select('*, private_details (*)')
+          .eq('role', 'employee')  // Only include employees, not owner
+          .eq('status', 'active'),  // Only active employees
         supabase.from('attendance')
           .select('employee_id, total_minutes')
           .gte('date', startDate)

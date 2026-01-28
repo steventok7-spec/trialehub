@@ -242,54 +242,45 @@ export class LoginComponent implements OnInit {
 
     this.loading.set(true);
 
-    // Smart login: try to detect role automatically
-    this.attemptSmartLogin(trimmedLoginId, trimmedPassword);
+    // Use the new simplified login method
+    this.performLogin(trimmedLoginId, trimmedPassword);
   }
 
-  private attemptSmartLogin(loginId: string, password: string): void {
-    // Try owner login first
-    this.api.adminLogin({ username: loginId, password }).pipe(
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe({
-      next: (data) => {
-        if (data.success && data.admin) {
-          this.loading.set(false);
-          this.authService.login(data.admin, 'owner');
-          this.toast.success('Welcome back, Owner!');
-          this.router.navigate(['/admin/dashboard']);
-        } else if (data.error && (data.error.includes('Access denied') || data.error.includes('Profile not found'))) {
-          // If we specifically found the user but they aren't an owner, or have no profile, stop here
-          this.loading.set(false);
-          this.toast.error(data.error);
-        } else {
-          // General auth failure (like invalid credentials), try as employee
-          this.attemptEmployeeLogin(loginId, password);
-        }
-      },
-      error: () => {
-        this.attemptEmployeeLogin(loginId, password);
-      }
-    });
-  }
+  private async performLogin(email: string, password: string): Promise<void> {
+    try {
+      // One method does everything: auth + profile fetch + state update
+      const result = await this.authService.loginWithPassword(email, password);
 
-
-  private attemptEmployeeLogin(loginId: string, password: string): void {
-    this.api.employeeLogin({ email: loginId, pin: password }).pipe(
-      takeUntilDestroyed(this.destroyRef),
-      finalize(() => this.loading.set(false))
-    ).subscribe({
-      next: (data) => {
-        if (data.success && data.employee) {
-          this.authService.login(data.employee, 'employee');
-          this.toast.success(`Welcome back, ${data.employee.name}!`);
-          this.router.navigate(['/employee/dashboard']);
-        } else {
-          this.toast.error(data.error || 'Invalid credentials. Please check your email/username and password.');
-        }
-      },
-      error: (err) => {
-        this.toast.error('Authentication error. Please try again.');
+      if (!result.success) {
+        this.loading.set(false);
+        this.toast.error(result.error || 'Invalid credentials');
+        return;
       }
-    });
+
+      // Success! Get the user and navigate
+      const user = this.authService.currentUser();
+
+      if (!user) {
+        this.loading.set(false);
+        this.toast.error('Login succeeded but user data not found');
+        return;
+      }
+
+      this.loading.set(false);
+
+      // Show welcome message and navigate
+      if (user.role === 'owner') {
+        this.toast.success('Welcome back, Owner!');
+        this.router.navigate(['/admin/dashboard']);
+      } else {
+        this.toast.success(`Welcome back, ${user.name}!`);
+        this.router.navigate(['/employee/dashboard']);
+      }
+
+    } catch (error) {
+      this.loading.set(false);
+      console.error('Login error:', error);
+      this.toast.error('An unexpected error occurred');
+    }
   }
 }
