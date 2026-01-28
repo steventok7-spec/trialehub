@@ -37,10 +37,21 @@ export class NotificationService {
     unreadCount = computed(() => this.notificationsSignal().filter(n => !n.is_read).length);
 
     constructor() {
-        this.init();
+        // Removed automatic init() call to prevent loading notifications before auth is ready
+        // Services will call initializeForUser() after successful login
     }
 
-    async init() {
+    /**
+     * Initialize notifications for the logged-in user
+     * Must be called after authentication is confirmed
+     */
+    async initializeForUser() {
+        const user = this.auth.currentUser();
+        if (!user) {
+            console.warn('NotificationService: Cannot initialize without authenticated user');
+            return;
+        }
+
         await this.loadNotifications();
         this.subscribeToNotifications();
         this.checkForBirthdays();

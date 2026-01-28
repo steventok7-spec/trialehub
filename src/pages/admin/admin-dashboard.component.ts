@@ -301,14 +301,18 @@ export class AdminDashboardComponent implements OnInit {
 
 
   ngOnInit(): void {
+    // Verify user is authenticated and has admin role
     const user = this.authService.currentUser();
-    if (!user || user.role !== 'admin') {
-      this.toast.info('Please sign in as an admin to access that page.');
+    if (!user || user.role !== 'owner') {
+      this.toast.info('Please sign in as an owner to access that page.');
       this.router.navigate(['/']);
       return;
     }
 
     this.admin = user;
+
+    // Initialize notifications now that user is authenticated
+    this.notificationService.initializeForUser();
 
     // Use takeUntilDestroyed to prevent memory leaks
     this.route.queryParams.pipe(

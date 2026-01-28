@@ -10,7 +10,7 @@ export interface EmployeeProfile {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'employee' | string;
+  role: 'owner' | 'employee' | string;
   job_title?: JobTitle | string;
   employment_type?: EmploymentType | string;
   status?: EmployeeStatus | string;
@@ -88,7 +88,7 @@ export interface Employee {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'employee' | string;
+  role: 'owner' | 'employee' | string;
   salary?: number;
   schedule?: Record<string, boolean>;
   job_title?: string;
@@ -97,9 +97,12 @@ export interface Employee {
   [key: string]: unknown;
 }
 
-export interface Admin {
+export interface Owner {
   username: string;
   name: string;
-  role: 'admin' | string;
+  role: 'owner' | string;
   [key: string]: unknown;
 }
+
+// Legacy alias for backward compatibility
+export type Admin = Owner;

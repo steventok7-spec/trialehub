@@ -61,7 +61,6 @@ describe('LoginComponent', () => {
     it('should have default values', () => {
       expect(component.loginId).toBe('');
       expect(component.password).toBe('');
-      expect(component.selectedRole).toBe('admin');
       expect(component.showPassword()).toBe(false);
       expect(component.loading()).toBe(false);
     });
@@ -203,25 +202,24 @@ describe('LoginComponent', () => {
     });
   });
 
-  describe('Admin Login', () => {
+  describe('Owner Login (Smart Login)', () => {
     beforeEach(() => {
-      component.selectedRole = 'admin';
       component.dbStatus.set({ ready: true });
     });
 
-    it('should login successfully with valid admin credentials', () => {
-      const mockAdmin = { username: 'admin@test.com', name: 'Admin User', role: 'admin' as const };
-      component.loginId = 'admin@test.com';
+    it('should login successfully with valid owner credentials', () => {
+      const mockOwner = { username: 'steventok@sukhapku.com', name: 'Owner User', role: 'owner' as const };
+      component.loginId = 'steventok@sukhapku.com';
       component.password = 'password';
 
-      apiService.adminLogin.mockReturnValue(of({ success: true, admin: mockAdmin }));
+      apiService.adminLogin.mockReturnValue(of({ success: true, admin: mockOwner }));
 
       const event = new Event('submit');
       component.handleLogin(event);
 
       expect(component.loading()).toBe(false);
-      expect(authService.login).toHaveBeenCalledWith(mockAdmin, 'admin');
-      expect(toastService.success).toHaveBeenCalledWith('Welcome back, Admin!');
+      expect(authService.login).toHaveBeenCalledWith(mockOwner, 'owner');
+      expect(toastService.success).toHaveBeenCalledWith('Welcome back, Owner!');
       expect(router.navigate).toHaveBeenCalledWith(['/admin/dashboard']);
     });
 
@@ -278,9 +276,8 @@ describe('LoginComponent', () => {
     });
   });
 
-  describe('Employee Login', () => {
+  describe('Employee Login (Fallback from Smart Login)', () => {
     beforeEach(() => {
-      component.selectedRole = 'employee';
       component.dbStatus.set({ ready: true });
     });
 
@@ -353,16 +350,15 @@ describe('LoginComponent', () => {
 
   describe('Loading State', () => {
     it('should set loading to true during login', () => {
-      component.selectedRole = 'admin';
-      component.loginId = 'admin';
-      component.password = 'admin';
+      component.loginId = 'owner@test.com';
+      component.password = 'password';
       component.dbStatus.set({ ready: true });
 
       // Delay the response to check loading state
       apiService.adminLogin.mockReturnValue(
         new Observable(subscriber => {
           expect(component.loading()).toBe(true);
-          subscriber.next({ success: true, admin: { username: 'admin', name: 'Admin', role: 'admin' } });
+          subscriber.next({ success: true, admin: { username: 'owner@test.com', name: 'Owner', role: 'owner' } });
           subscriber.complete();
         })
       );
@@ -372,14 +368,13 @@ describe('LoginComponent', () => {
     });
 
     it('should set loading to false after successful login', () => {
-      component.selectedRole = 'admin';
-      component.loginId = 'admin';
-      component.password = 'admin';
+      component.loginId = 'owner@test.com';
+      component.password = 'password';
       component.dbStatus.set({ ready: true });
 
       apiService.adminLogin.mockReturnValue(of({
         success: true,
-        admin: { username: 'admin', name: 'Admin', role: 'admin' }
+        admin: { username: 'owner@test.com', name: 'Owner', role: 'owner' }
       }));
 
       const event = new Event('submit');
@@ -389,12 +384,16 @@ describe('LoginComponent', () => {
     });
 
     it('should set loading to false after failed login', () => {
-      component.selectedRole = 'admin';
-      component.loginId = 'admin';
+      component.loginId = 'owner@test.com';
       component.password = 'wrong';
       component.dbStatus.set({ ready: true });
 
+      // Mock both admin and employee login to fail
       apiService.adminLogin.mockReturnValue(of({
+        success: false,
+        error: 'Invalid credentials'
+      }));
+      apiService.employeeLogin.mockReturnValue(of({
         success: false,
         error: 'Invalid credentials'
       }));

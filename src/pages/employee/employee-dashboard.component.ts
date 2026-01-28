@@ -11,6 +11,7 @@ import { LeaveRequestFormComponent } from './modals/leave-request-form.component
 import { SickReportFormComponent } from './modals/sick-report-form.component';
 import { ExpenseClaimFormComponent } from './modals/expense-claim-form.component';
 import { Attendance, EmployeeHistory, EmployeeSummary, FullEmployeeDetails } from '../../models';
+import { NotificationService } from '../../services/notification.service';
 
 @Component({
   selector: 'app-employee-dashboard',
@@ -460,6 +461,7 @@ export class EmployeeDashboardComponent implements OnInit {
   private authService = inject(AuthService);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
+  private notificationService = inject(NotificationService);
 
   // Office location configuration - in production, this should come from a config service
   private readonly OFFICE_LAT = 0.5031383484339234;
@@ -486,6 +488,10 @@ export class EmployeeDashboardComponent implements OnInit {
       this.router.navigateByUrl('/');
       return;
     }
+
+    // Initialize notifications for authenticated employee
+    this.notificationService.initializeForUser();
+
     this.checkLocationPermission();
     this.loadData();
   }

@@ -78,20 +78,8 @@ export class ApiService {
 
   // Demo credentials loaded from environment or config
   // In production, these should be moved to environment variables
-  private readonly DEMO_CREDENTIALS: Record<string, { password: string; admin: Admin }> = {
-    admin: {
-      password: 'admin',
-      admin: { username: 'admin@demo.com', name: 'Demo Admin', role: 'admin' }
-    },
-    steventok: {
-      password: '1234567',
-      admin: { username: 'steventok', name: 'Steven Tok (Owner)', role: 'admin' }
-    },
-    'steventok7@example.com': {
-      password: '1234567',
-      admin: { username: 'steventok7@example.com', name: 'Steven Tok', role: 'admin' }
-    }
-  };
+  // No demo/mock credentials here. Production uses real Supabase Auth.
+
 
   // --- Database Setup Check ---
 
@@ -141,17 +129,13 @@ export class ApiService {
 
     const trimmedUsername = creds.username.trim().toLowerCase();
 
-    // Check demo credentials
-    const demoMatch = this.DEMO_CREDENTIALS[trimmedUsername];
-    if (demoMatch && demoMatch.password === creds.password) {
-      return of({
-        success: true,
-        admin: demoMatch.admin
-      });
-    }
+    // No demo login here. Production uses real Supabase Auth.
+
 
     // Real Supabase Login
-    return from(supabase.auth.signInWithPassword({ email: creds.username, password: creds.password })).pipe(
+    const loginEmail = creds.username.trim().toLowerCase();
+
+    return from(supabase.auth.signInWithPassword({ email: loginEmail, password: creds.password })).pipe(
       switchMap(async ({ data, error }) => {
         if (error) {
           return { success: false, error: error.message };
@@ -174,9 +158,15 @@ export class ApiService {
             return { success: false, error: 'Failed to fetch user profile.' };
           }
 
-          if (!profile || profile.role !== 'admin') {
+          if (!profile || profile.role !== 'owner') {
             await supabase.auth.signOut();
-            return { success: false, error: 'Access denied: Not an admin account.' };
+            return { success: false, error: 'Access denied: Not an owner account.' };
+          }
+
+          // Single owner enforcement
+          if (profile.email !== 'steventok@sukhapku.com') {
+            await supabase.auth.signOut();
+            return { success: false, error: 'Access denied: Unauthorized owner email.' };
           }
 
           return {
@@ -195,15 +185,16 @@ export class ApiService {
     );
   }
 
-  employeeLogin(creds: { employeeId: string; pin: string }): Observable<EmployeeLoginResponse> {
+  employeeLogin(creds: { email: string; pin: string }): Observable<EmployeeLoginResponse> {
     // Validate input
-    if (!creds.employeeId?.trim() || !creds.pin) {
-      return of({ success: false, error: 'Employee ID and PIN are required.' });
+    if (!creds.email?.trim() || !creds.pin) {
+      return of({ success: false, error: 'Email and PIN are required.' });
     }
 
-    // Assuming 'employeeId' input is email for Supabase Auth
-    // In a real app with 'Employee ID' login, you'd need a lookup table or Edge Function.
-    return from(supabase.auth.signInWithPassword({ email: creds.employeeId, password: creds.pin })).pipe(
+    const loginEmail = creds.email.trim().toLowerCase();
+    const authPayload = { email: loginEmail, password: creds.pin };
+
+    return from(supabase.auth.signInWithPassword(authPayload)).pipe(
       switchMap(async ({ data, error }) => {
         if (error) {
           return { success: false, error: error.message };
@@ -286,8 +277,15 @@ export class ApiService {
   // --- Employee Management (Admin) ---
 
   getEmployees(): Observable<Employee[]> {
-    // Fetches employees and joins private_details for salary info
-    return from(supabase.from('profiles').select('*, private_details(*)')).pipe(
+    // Fetches ONLY employees (not owner) with private_details for salary info
+    // This should only be called by owner - RLS will enforce access control
+    return from(
+      supabase
+        .from('profiles')
+        .select('*, private_details(*)')
+        .eq('role', 'employee')
+        .eq('status', 'active')
+    ).pipe(
       map(({ data, error }) => {
         if (error) {
           console.error('Failed to fetch employees:', error);
@@ -328,18 +326,33 @@ export class ApiService {
     // REAL IMPLEMENTATION: Create Auth User via Secondary Client (to avoid Admin logout)
     return from((async () => {
       try {
-        // 1. Create temporary client
+        // CRITICAL FIX: Save current admin session before using temp client
+        const currentSession = await supabase.auth.getSession();
+        const adminSession = currentSession.data.session;
+
+        if (!adminSession) {
+          return { success: false, error: 'Admin session not found. Please log in again.' };
+        }
+
+        // 1. Create temporary client with COMPLETELY ISOLATED storage
+        // This prevents interference with the main admin session
         const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
           auth: {
             persistSession: false,
             autoRefreshToken: false,
-            detectSessionInUrl: false
+            detectSessionInUrl: false,
+            storageKey: 'sukha-auth-worker-isolated',
+            storage: {
+              getItem: (key) => null,
+              setItem: (key, value) => { },
+              removeItem: (key) => { }
+            }
           }
         });
 
-        // 2. Sign Up (Create User)
+        // 2. Sign Up (Create User using generated email)
         const { data: authData, error: authError } = await tempClient.auth.signUp({
-          email: data.email,
+          email: data.email as string,
           password: String(pin),
           options: {
             data: { name: data.name } // Metadata for Trigger
@@ -356,33 +369,61 @@ export class ApiService {
 
         const newId = authData.user.id;
 
+        // Ensure main client session is still healthy (it shouldn't be affected now)
+        const checkSession = await supabase.auth.getSession();
+        if (!checkSession.data.session) {
+          // Unexpected clobbering happened - emergency restore
+          if (adminSession) {
+            await supabase.auth.setSession(adminSession);
+          }
+        }
+
         // 3. Update Profile (using Admin privileges of Main Client)
-        // We reuse updateEmployee logic logic manually here to ensure we hit the right ID
-        const { error: pError } = await supabase.from('profiles').update({
+        // Ensure job_title is a valid enum value or null
+        const validJobTitles = ['commis_kitchen', 'barista', 'steward', 'commis_pastry', 'fnb_service', 'manager'];
+        const jobTitleValue = data.job_title && validJobTitles.includes(data.job_title)
+          ? data.job_title
+          : (data.role && validJobTitles.includes(data.role) ? data.role : null);
+
+        const { data: profileData, error: pError } = await supabase.from('profiles').update({
           name: data.name,
-          job_title: data.job_title || data.role,
-          employment_type: data.employment_type,
+          job_title: jobTitleValue,
+          employment_type: data.employment_type || 'full_time',
           status: data.status || 'active',
           phone_number: data['phone_number'],
           date_of_birth: data['date_of_birth'],
-          gender: data['gender'],
+          gender: (data['gender'] as string | undefined)?.toLowerCase(), // Ensure consistent casing for enum
           start_date: data['start_date']
-        }).eq('id', newId);
+        }).eq('id', newId).select();
 
         if (pError) throw pError;
 
+        // Verify profile was actually updated
+        if (!profileData || profileData.length === 0) {
+          throw new Error('Profile update failed: No rows affected');
+        }
+
         // 4. Update Private Details
-        const { error: dError } = await supabase.from('private_details').update({
-          monthly_salary_idr: data.salary,
-          hourly_rate_idr: data['hourly_rate_idr'], // Ensure this maps if passed
+        const { data: detailsData, error: dError } = await supabase.from('private_details').update({
+          monthly_salary_idr: data.salary || 0,
+          hourly_rate_idr: data['hourly_rate_idr'] || 0,
           address: data['address'],
           national_id: data['national_id'],
           emergency_contact_name: data['emergency_contact_name'],
           emergency_contact_phone: data['emergency_contact_phone'],
           probation_end_date: data['probation_end_date']
-        }).eq('id', newId);
+        }).eq('id', newId).select();
 
-        if (dError) console.error('Details update caution:', dError);
+        if (dError) {
+          console.error('Details update failed:', dError);
+          return { success: true, employee: { ...data, id: newId } as Employee, error: 'Warning: Profile created but private details update failed: ' + dError.message };
+        }
+
+        // Verify private_details was actually updated
+        if (!detailsData || detailsData.length === 0) {
+          console.warn('Private details update: No rows affected');
+          return { success: true, employee: { ...data, id: newId } as Employee, error: 'Warning: Profile created but private details may not have been updated.' };
+        }
 
         return { success: true, employee: { ...data, id: newId } as Employee };
 
@@ -403,6 +444,7 @@ export class ApiService {
       try {
         const { error: pError } = await supabase.from('profiles').update({
           name: data.name,
+          username: data['username'],
           job_title: data.job_title || data.role,
           employment_type: data.employment_type,
           status: data.status,
@@ -453,12 +495,41 @@ export class ApiService {
     );
   }
 
-  updateSchedule(data: { employeeId: string; schedule: Record<string, boolean> }): Observable<OperationResponse> {
-    // Stub: Schedule column not in schema
-    if (!data.employeeId) {
-      return of({ success: false, error: 'Employee ID is required.' });
+  updateSchedule(data: {
+    employeeId: string;
+    date: string;
+    shift: 'morning' | 'afternoon' | 'full_day';
+    startTime?: string;
+    endTime?: string;
+    notes?: string;
+  }): Observable<OperationResponse> {
+    if (!data.employeeId || !data.date || !data.shift) {
+      return of({ success: false, error: 'Employee ID, date, and shift are required.' });
     }
-    return of({ success: true });
+
+    return from(
+      supabase
+        .from('schedule')
+        .upsert({
+          employee_id: data.employeeId,
+          date: data.date,
+          shift: data.shift,
+          start_time: data.startTime,
+          end_time: data.endTime,
+          notes: data.notes
+        }, {
+          onConflict: 'employee_id,date,shift'
+        })
+    ).pipe(
+      map(({ error }) => ({
+        success: !error,
+        error: error?.message
+      })),
+      catchError((err) => {
+        console.error('Failed to update schedule:', err);
+        return of({ success: false, error: 'Failed to update schedule. Please try again.' });
+      })
+    );
   }
 
   getEmployeeDetails(id: string): Observable<{
@@ -761,6 +832,46 @@ export class ApiService {
       catchError((err) => {
         console.error('Failed to fetch requests:', err);
         return of([]);
+      })
+    );
+  }
+
+  /**
+   * Update request status (approve/reject)
+   * Owner-only operation enforced by RLS
+   */
+  updateRequestStatus(requestId: string, status: 'approved' | 'rejected'): Observable<OperationResponse> {
+    if (!requestId) {
+      return of({ success: false, error: 'Request ID is required.' });
+    }
+
+    if (status !== 'approved' && status !== 'rejected') {
+      return of({ success: false, error: 'Invalid status. Must be approved or rejected.' });
+    }
+
+    return from(
+      supabase
+        .from('requests')
+        .update({ status })
+        .eq('id', requestId)
+        .select()
+    ).pipe(
+      map(({ data, error }) => {
+        if (error) {
+          console.error('Failed to update request status:', error);
+          return { success: false, error: error.message };
+        }
+
+        // Verify row was actually updated
+        if (!data || data.length === 0) {
+          return { success: false, error: 'Request not found or no permission to update.' };
+        }
+
+        return { success: true };
+      }),
+      catchError((err) => {
+        console.error('Failed to update request status:', err);
+        return of({ success: false, error: 'Failed to update request. Please try again.' });
       })
     );
   }

@@ -349,13 +349,21 @@ export class AdminEmployeesNew implements OnInit {
       ? this.api.updateEmployee(employeeData)
       : this.api.addEmployee(employeeData);
 
-    apiCall.subscribe(res => {
-      if (res.success) {
-        this.toast.success(`Employee ${employeeData.id ? 'updated' : 'added'} successfully!`);
-        this.loadEmployees();
-        this.closeModals();
-      } else {
-        this.toast.error(res.error || 'Failed to save employee.');
+    apiCall.subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.toast.success(`Employee ${employeeData.id ? 'updated' : 'added'} successfully!`);
+          this.loadEmployees();
+          this.closeModals();
+        } else {
+          this.toast.error(res.error || 'Failed to save employee.');
+          // Don't close modal on error - let user fix the data
+        }
+      },
+      error: (err) => {
+        console.error('Employee save error:', err);
+        this.toast.error('Network error. Please try again.');
+        // Don't close modal on error
       }
     });
   }
@@ -374,7 +382,15 @@ export class AdminEmployeesNew implements OnInit {
   }
 
   handleSaveSchedule(scheduleData: { employeeId: string, schedule: any }) {
-    this.api.updateSchedule(scheduleData).subscribe(res => {
+    // Note: The schedule modal emits weekly schedule data (mon, tue, wed, etc.)
+    // but the updateSchedule API expects single-day entries with date/shift.
+    // For now, we'll update the employee's schedule field in their profile.
+    // TODO: Either redesign the modal or create a proper weekly schedule API endpoint
+
+    this.api.updateEmployee({
+      id: scheduleData.employeeId,
+      schedule: scheduleData.schedule
+    } as any).subscribe(res => {
       if (res.success) {
         this.toast.success('Schedule updated successfully!');
         this.loadEmployees();

@@ -2,7 +2,7 @@
 import { Component, OnInit, inject, signal, DestroyRef, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../services/api.service';
 import { ToastService } from '../../services/toast.service';
@@ -13,7 +13,7 @@ import { finalize } from 'rxjs';
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent],
+  imports: [CommonModule, FormsModule, IconComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 flex flex-col items-center justify-center p-5 relative">
@@ -75,20 +75,20 @@ import { finalize } from 'rxjs';
           <h2 class="text-xl font-semibold text-zinc-900 mb-6 text-center">Sign In</h2>
           
           <form (submit)="handleLogin($event)" class="space-y-5">
-            <!-- Email/Username Input -->
+            <!-- Email Input -->
             <div>
-              <label class="block text-sm font-medium text-zinc-600 mb-2">Email or Username</label>
+              <label class="block text-sm font-medium text-zinc-600 mb-2">Email Address</label>
               <div class="relative">
                 <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <app-icon name="user" class="w-5 h-5 text-zinc-400" />
+                  <app-icon name="mail" class="w-5 h-5 text-zinc-400" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   [(ngModel)]="loginId"
                   name="loginId"
-                  placeholder="Enter your email or username"
+                  placeholder="Enter your email"
                   class="w-full pl-12 pr-4 py-3.5 border border-zinc-200 bg-zinc-50 rounded-xl text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent focus:bg-white transition-all text-base"
-                  autocomplete="username"
+                  autocomplete="email"
                 />
               </div>
             </div>
@@ -138,17 +138,12 @@ import { finalize } from 'rxjs';
             </button>
           </form>
 
-          <!-- Demo Credentials -->
-          <div class="mt-6 pt-5 border-t border-zinc-100">
-            <p class="text-xs text-zinc-400 text-center mb-3">Demo Credentials</p>
-            <div class="space-y-2">
-              <button type="button" (click)="fillDemo('admin')" class="w-full py-2.5 bg-zinc-50 hover:bg-zinc-100 rounded-lg text-zinc-600 text-sm font-medium border border-zinc-200">
-                Admin
-              </button>
-              <button type="button" (click)="fillDemo('employee')" class="w-full py-2.5 bg-zinc-50 hover:bg-zinc-100 rounded-lg text-zinc-600 text-sm font-medium border border-zinc-200">
-                Employee
-              </button>
-            </div>
+          <!-- Self Registration Link -->
+          <div class="mt-6 text-center">
+            <p class="text-sm text-zinc-500">
+              New here? 
+              <a routerLink="/register" class="text-zinc-900 font-bold hover:underline">Join as Team Member</a>
+            </p>
           </div>
         </div>
 
@@ -177,7 +172,7 @@ export class LoginComponent implements OnInit {
   ngOnInit(): void {
     const user = this.authService.currentUser();
     if (user) {
-      if (user.role === 'admin') {
+      if (user.role === 'owner') {
         this.router.navigate(['/admin/dashboard']);
       } else {
         this.router.navigate(['/employee/dashboard']);
@@ -210,15 +205,6 @@ export class LoginComponent implements OnInit {
     });
   }
 
-  fillDemo(type: 'admin' | 'employee'): void {
-    if (type === 'admin') {
-      this.loginId = 'admin';
-      this.password = 'admin';
-    } else {
-      this.loginId = 'employee';
-      this.password = 'employee';
-    }
-  }
 
   testConnection(): void {
     this.toast.info('Testing connection to Supabase...');
@@ -249,12 +235,7 @@ export class LoginComponent implements OnInit {
       return;
     }
 
-    // Allow Bypass for Demo Credentials
-    const isDemoBypass =
-      (trimmedLoginId.toLowerCase() === 'admin' && trimmedPassword === 'admin') ||
-      (trimmedLoginId.toLowerCase() === 'employee' && trimmedPassword === 'employee');
-
-    if (this.dbStatus() && !this.dbStatus()!.ready && !isDemoBypass) {
+    if (this.dbStatus() && !this.dbStatus()!.ready) {
       this.toast.error('Database connection failed. Check your config.');
       return;
     }
@@ -266,64 +247,34 @@ export class LoginComponent implements OnInit {
   }
 
   private attemptSmartLogin(loginId: string, password: string): void {
-    // Check demo credentials first for immediate bypass
-    if (loginId.toLowerCase() === 'admin' && password === 'admin') {
-      this.handleDemoAdmin();
-      return;
-    }
-    if (loginId.toLowerCase() === 'employee' && password === 'employee') {
-      this.handleDemoEmployee();
-      return;
-    }
-
-    // Try admin login first
+    // Try owner login first
     this.api.adminLogin({ username: loginId, password }).pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe({
       next: (data) => {
         if (data.success && data.admin) {
           this.loading.set(false);
-          this.authService.login(data.admin, 'admin');
-          this.toast.success('Welcome back, Admin!');
+          this.authService.login(data.admin, 'owner');
+          this.toast.success('Welcome back, Owner!');
           this.router.navigate(['/admin/dashboard']);
+        } else if (data.error && (data.error.includes('Access denied') || data.error.includes('Profile not found'))) {
+          // If we specifically found the user but they aren't an owner, or have no profile, stop here
+          this.loading.set(false);
+          this.toast.error(data.error);
         } else {
-          // Admin login failed, try employee login
+          // General auth failure (like invalid credentials), try as employee
           this.attemptEmployeeLogin(loginId, password);
         }
       },
       error: () => {
-        // Admin login error, try employee login
         this.attemptEmployeeLogin(loginId, password);
       }
     });
   }
 
-  private handleDemoAdmin(): void {
-    this.loading.set(false);
-    const demoAdmin = { id: 'demo-admin', name: 'Admin User', email: 'admin@sukha.demo', role: 'admin' };
-    this.authService.login(demoAdmin, 'admin');
-    this.toast.success('Welcome, Admin!');
-    this.router.navigate(['/admin/dashboard']);
-  }
-
-  private handleDemoEmployee(): void {
-    this.loading.set(false);
-    const demoEmployee = {
-      id: 'demo-emp-001',
-      email: 'employee@sukha.demo',
-      name: 'Demo Employee',
-      role: 'employee',
-      job_title: 'Staff',
-      employment_type: 'full_time',
-      status: 'active'
-    };
-    this.authService.login(demoEmployee, 'employee');
-    this.toast.success('Welcome, Demo Employee!');
-    this.router.navigate(['/employee/dashboard']);
-  }
 
   private attemptEmployeeLogin(loginId: string, password: string): void {
-    this.api.employeeLogin({ employeeId: loginId, pin: password }).pipe(
+    this.api.employeeLogin({ email: loginId, pin: password }).pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => this.loading.set(false))
     ).subscribe({
@@ -333,11 +284,11 @@ export class LoginComponent implements OnInit {
           this.toast.success(`Welcome back, ${data.employee.name}!`);
           this.router.navigate(['/employee/dashboard']);
         } else {
-          this.toast.error('Invalid credentials. Please check your email/username and password.');
+          this.toast.error(data.error || 'Invalid credentials. Please check your email/username and password.');
         }
       },
-      error: () => {
-        this.toast.error('Invalid credentials. Please check your email/username and password.');
+      error: (err) => {
+        this.toast.error('Authentication error. Please try again.');
       }
     });
   }

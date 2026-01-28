@@ -1,14 +1,14 @@
 import { Injectable, signal, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { supabase } from '../supabase.config';
+import type { Session } from '@supabase/supabase-js';
 
-/** User session data stored in the auth service */
 export interface AuthUser {
   id?: string;
   name: string;
   email?: string;
   username?: string;
-  role: 'admin' | 'employee';
+  role: 'owner' | 'employee';
   job_title?: string;
   status?: string;
 }
@@ -31,22 +31,120 @@ export class AuthService implements OnDestroy {
   currentUser = signal<AuthUser | null>(null);
 
   private sessionCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private supabaseSession: Session | null = null;
 
   constructor(private router: Router) {
-    this.loadUserFromStorage();
+    this.initializeSession();
     this.startSessionCheck();
+    this.setupAuthListener();
   }
 
   ngOnDestroy(): void {
     this.stopSessionCheck();
   }
 
+  /**
+   * Initialize session from Supabase (single source of truth)
+   * This runs on app start and ensures localStorage never overrides Supabase
+   */
+  private async initializeSession(): Promise<void> {
+    try {
+      // Get current Supabase session
+      const { data: { session }, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error('Failed to get Supabase session:', error);
+        this.clearSession();
+        return;
+      }
+
+      if (!session) {
+        // No Supabase session - clear any localStorage remnants
+        this.clearSession();
+        return;
+      }
+
+      // Valid Supabase session exists - fetch profile and hydrate
+      this.supabaseSession = session;
+      await this.hydrateUserFromSupabase(session.user.id);
+
+    } catch (error) {
+      console.error('Session initialization failed:', error);
+      this.clearSession();
+    }
+  }
+
+  /**
+   * Fetch user profile from Supabase and set currentUser
+   */
+  private async hydrateUserFromSupabase(userId: string): Promise<void> {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error || !profile) {
+        console.error('Failed to fetch profile:', error);
+        this.clearSession();
+        return;
+      }
+
+      const authUser: AuthUser = {
+        id: profile.id,
+        name: profile.name || profile.email?.split('@')[0] || 'Unknown',
+        email: profile.email,
+        role: profile.role === 'owner' ? 'owner' : 'employee',
+        job_title: profile.job_title,
+        status: profile.status
+      };
+
+      this.currentUser.set(authUser);
+      this.saveSession(authUser);
+
+    } catch (error) {
+      console.error('Failed to hydrate user from Supabase:', error);
+      this.clearSession();
+    }
+  }
+
+  /**
+   * Listen to Supabase auth state changes
+   */
+  private setupAuthListener(): void {
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+
+      if (event === 'SIGNED_OUT' || !session) {
+        this.clearSession();
+        this.currentUser.set(null);
+        this.supabaseSession = null;
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        this.supabaseSession = session;
+        await this.hydrateUserFromSupabase(session.user.id);
+      }
+    });
+  }
+
+  /**
+   * Get current Supabase session (for guards and API calls)
+   */
+  async getSupabaseSession(): Promise<Session | null> {
+    const { data: { session } } = await supabase.auth.getSession();
+    this.supabaseSession = session;
+    return session;
+  }
+
   private loadUserFromStorage(): void {
+    // This is now only used as a fallback for quick UI hydration
+    // Supabase session is the source of truth
     try {
       const sessionJson = localStorage.getItem(SESSION_STORAGE_KEY);
       if (!sessionJson) {
-        // Check for legacy storage format and migrate
-        this.migrateLegacyStorage();
         return;
       }
 
@@ -60,41 +158,16 @@ export class AuthService implements OnDestroy {
 
       // Validate user object structure
       if (this.isValidUser(session.user)) {
-        this.currentUser.set(session.user);
+        // Only set if we don't have a user yet (prevents override)
+        if (!this.currentUser()) {
+          this.currentUser.set(session.user);
+        }
       } else {
         this.clearSession();
       }
     } catch (error) {
       console.error('Failed to load user from storage:', error);
       this.clearSession();
-    }
-  }
-
-  /** Migrate from old storage format (admin/employee keys) to new session format */
-  private migrateLegacyStorage(): void {
-    try {
-      const adminJson = localStorage.getItem('admin');
-      const employeeJson = localStorage.getItem('employee');
-
-      if (adminJson) {
-        const admin = JSON.parse(adminJson);
-        if (admin && typeof admin === 'object') {
-          const user: AuthUser = { ...admin, role: 'admin' };
-          this.saveSession(user);
-          this.currentUser.set(user);
-        }
-        localStorage.removeItem('admin');
-      } else if (employeeJson) {
-        const employee = JSON.parse(employeeJson);
-        if (employee && typeof employee === 'object') {
-          const user: AuthUser = { ...employee, role: 'employee' };
-          this.saveSession(user);
-          this.currentUser.set(user);
-        }
-        localStorage.removeItem('employee');
-      }
-    } catch (error) {
-      console.error('Failed to migrate legacy storage:', error);
     }
   }
 
@@ -105,7 +178,7 @@ export class AuthService implements OnDestroy {
     return (
       typeof u['name'] === 'string' &&
       u['name'].length > 0 &&
-      (u['role'] === 'admin' || u['role'] === 'employee')
+      (u['role'] === 'owner' || u['role'] === 'employee')
     );
   }
 
@@ -141,18 +214,28 @@ export class AuthService implements OnDestroy {
   }
 
   /** Validate current session and logout if expired */
-  private validateSession(): void {
+  private async validateSession(): Promise<void> {
     try {
-      const sessionJson = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionJson) {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        // No Supabase session - logout
         if (this.currentUser()) {
           this.logout();
         }
         return;
       }
 
-      const session: SessionData = JSON.parse(sessionJson);
-      if (Date.now() > session.expiresAt) {
+      // Supabase session exists - verify localStorage matches
+      const sessionJson = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionJson) {
+        // localStorage cleared but Supabase session exists - re-hydrate
+        await this.hydrateUserFromSupabase(session.user.id);
+        return;
+      }
+
+      const localSession: SessionData = JSON.parse(sessionJson);
+      if (Date.now() > localSession.expiresAt) {
         this.logout();
       }
     } catch {
@@ -172,11 +255,15 @@ export class AuthService implements OnDestroy {
     return !!this.currentUser();
   }
 
-  hasRole(role: 'admin' | 'employee'): boolean {
+  hasRole(role: 'owner' | 'employee'): boolean {
     return this.currentUser()?.role === role;
   }
 
-  login(user: AuthUser | Record<string, unknown> | { [key: string]: unknown }, role: 'admin' | 'employee'): void {
+  /**
+   * Login user - must be called AFTER successful Supabase authentication
+   * This sets the local state based on the authenticated Supabase session
+   */
+  login(user: AuthUser | Record<string, unknown> | { [key: string]: unknown }, role: 'owner' | 'employee'): void {
     if (!user || typeof user !== 'object') {
       console.error('Invalid user object provided to login');
       return;
@@ -199,11 +286,22 @@ export class AuthService implements OnDestroy {
     this.currentUser.set(authUser);
   }
 
+<<<<<<< HEAD
   logout(): void {
     // Clear Supabase session to prevent token reuse
     supabase.auth.signOut().catch(err => console.error('Supabase signout failed:', err));
+=======
+  async logout(): Promise<void> {
+    // Sign out from Supabase
+    await supabase.auth.signOut();
+
+    // Clear local state
+>>>>>>> d7e4a9b (chore: update owner email to steventok@sukhapku.com)
     this.clearSession();
     this.currentUser.set(null);
+    this.supabaseSession = null;
+
+    // Navigate to login
     this.router.navigate(['/']);
   }
 }

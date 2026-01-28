@@ -1,0 +1,3 @@
+email,password,name,role,job_title,employment_type,status,monthly_salary_idr,hourly_rate_idr,phone_number,date_of_birth,gender,start_date,address,national_id,emergency_contact_name,emergency_contact_phone,bank_name,bank_account_number
+test.kitchen@example.com,123456,Test Kitchen Staff,employee,commis_kitchen,full_time,active,4500000,0,+62812345678,1990-01-01,male,2024-01-01,Jl. Test No. 1,1234567890123456,Emergency Mom,+62811111111,bca,1234567890
+test.barista@example.com,123456,Test Barista,employee,barista,part_time,active,0,35000,+62812345679,1995-05-05,female,2024-02-01,Jl. Coffee No. 2,6543210987654321,Emergency Dad,+62822222222,mandiri,0987654321

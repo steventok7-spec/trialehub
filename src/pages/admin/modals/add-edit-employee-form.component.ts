@@ -428,6 +428,15 @@ export class AddEditEmployeeFormComponent implements OnInit {
 
       // Cast to any to bypass strict type check for now if FullEmployeeDetails isn't fully propagated in IDE cache
       this.save.emit(finalData as any);
+
+      // Safety timeout: reset loading if parent doesn't close modal within 10 seconds
+      // This prevents stuck "Saving..." state if there's an unhandled error
+      setTimeout(() => {
+         if (this.loading()) {
+            this.loading.set(false);
+            console.warn('Form loading state auto-reset after timeout');
+         }
+      }, 10000);
    }
 
    onBackdropClick(event: MouseEvent): void { }
@@ -456,5 +465,14 @@ export class AddEditEmployeeFormComponent implements OnInit {
          pin: ''
       };
       this.formSubmitted.set(false);
+      this.loading.set(false);
+   }
+
+   /**
+    * Public method to reset loading state from parent component
+    * Called when save operation completes (success or error)
+    */
+   resetLoading(): void {
+      this.loading.set(false);
    }
 }
