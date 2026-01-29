@@ -34,7 +34,7 @@ export class IconComponent {
   size = signal<number | string>(24);
   @Input('size') set _size(val: number | string) { this.size.set(val); }
 
-  @Input() set class(val: string) { this.classSignal.set(val); }
+  @Input() set cssClass(val: string) { this.classSignal.set(val); }
   private classSignal = signal<string>('');
 
   private icons: Record<string, string> = {
