@@ -1,5 +1,4 @@
 
-
 import { Routes } from '@angular/router';
 import { authGuard } from './auth/auth.guard';
 
@@ -76,6 +75,18 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/admin/requests.component').then(m => m.RequestsComponent)
       }
     ]
+  },
+
+  // Payroll Routes (Both Owner & Employee - access control at service level)
+  {
+    path: 'payroll',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/payroll/payroll-list.component').then(m => m.PayrollListComponent)
+  },
+  {
+    path: 'payroll/:id',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/payroll/payroll-detail.component').then(m => m.PayrollDetailComponent)
   },
 
   // Catch all
