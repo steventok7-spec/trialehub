@@ -15,6 +15,7 @@ import { AuthService, AuthUser } from '../auth/auth.service';
 import { EmployeeService } from './employee.service';
 import { AttendanceService } from './attendance.service';
 import { SchedulingService } from './scheduling.service';
+import { RequestsService } from './requests.service';
 
 /** Response type for database status check */
 interface DatabaseStatus {
@@ -81,6 +82,7 @@ export class ApiService {
   private employeeService = inject(EmployeeService);
   private attendanceService = inject(AttendanceService);
   private schedulingService = inject(SchedulingService);
+  private requestsService = inject(RequestsService);
 
   // --- Database Setup Check ---
 
@@ -434,31 +436,136 @@ export class ApiService {
     );
   }
 
-  // --- Requests ---
+  // --- Requests (Leave & Permission) ---
 
   submitLeaveRequest(data: { employeeId: string; fromDate: string; toDate: string; reason: string }): Observable<OperationResponse> {
-    console.warn('ApiService.submitLeaveRequest() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!data.employeeId || !data.fromDate || !data.toDate) {
+      return of({ success: false, error: 'Employee ID and dates are required.' });
+    }
+
+    return from((async () => {
+      try {
+        const requestId = await this.requestsService.createLeaveRequest(data.employeeId, {
+          type: 'personal',
+          startDate: data.fromDate,
+          endDate: data.toDate,
+          reason: data.reason || ''
+        });
+
+        if (!requestId) {
+          return { success: false, error: this.requestsService.error() || 'Failed to submit leave request.' };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to submit leave request.';
+        console.error('Submit leave request failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   submitSickReport(data: { employeeId: string; date: string; notes?: string }): Observable<OperationResponse> {
-    console.warn('ApiService.submitSickReport() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!data.employeeId || !data.date) {
+      return of({ success: false, error: 'Employee ID and date are required.' });
+    }
+
+    return from((async () => {
+      try {
+        const requestId = await this.requestsService.createLeaveRequest(data.employeeId, {
+          type: 'sick',
+          startDate: data.date,
+          endDate: data.date,
+          reason: data.notes || ''
+        });
+
+        if (!requestId) {
+          return { success: false, error: this.requestsService.error() || 'Failed to submit sick report.' };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to submit sick report.';
+        console.error('Submit sick report failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   submitExpenseClaim(data: { employeeId: string; amount: number; description: string; date?: string }): Observable<OperationResponse> {
-    console.warn('ApiService.submitExpenseClaim() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    // Expense claims are stored in requests collection (legacy support)
+    if (!data.employeeId || data.amount == null || data.amount <= 0) {
+      return of({ success: false, error: 'Employee ID and valid amount are required.' });
+    }
+
+    return from((async () => {
+      try {
+        const requestId = await this.requestsService.createRequest(data.employeeId, 'claim', {
+          amount: data.amount,
+          reason: data.description,
+          end_date: data.date || new Date().toISOString().split('T')[0]
+        });
+
+        if (!requestId) {
+          return { success: false, error: 'Failed to submit expense claim.' };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to submit expense claim.';
+        console.error('Submit expense claim failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   getRequests(type?: 'leave' | 'sick' | 'claim'): Observable<Request[]> {
-    console.warn('ApiService.getRequests() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of([]);
+    // Returns all requests with access control (employees see own, owners see all)
+    return from((async () => {
+      try {
+        // For now, get leave requests which include leave and sick types
+        return await this.requestsService.getAllLeaveRequests();
+      } catch {
+        return [];
+      }
+    })()).pipe(
+      catchError((err) => {
+        console.error('Failed to fetch requests:', err);
+        return of([]);
+      })
+    );
   }
 
   updateRequestStatus(requestId: string, status: 'approved' | 'rejected'): Observable<OperationResponse> {
-    console.warn('ApiService.updateRequestStatus() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!requestId) {
+      return of({ success: false, error: 'Request ID is required.' });
+    }
+
+    if (status !== 'approved' && status !== 'rejected') {
+      return of({ success: false, error: 'Invalid status. Must be approved or rejected.' });
+    }
+
+    return from((async () => {
+      try {
+        // Try leave_requests first
+        let success = false;
+        if (status === 'approved') {
+          success = await this.requestsService.approveLeaveRequest(requestId);
+        } else {
+          success = await this.requestsService.rejectLeaveRequest(requestId);
+        }
+
+        if (!success) {
+          return { success: false, error: this.requestsService.error() || 'Failed to update request status.' };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to update request status.';
+        console.error('Update request status failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   // --- Payroll ---
