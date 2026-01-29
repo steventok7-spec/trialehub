@@ -131,26 +131,27 @@ import { IconComponent } from '../../components/ui/icon.component';
               </div>
             </app-card>
 
-            <!-- Payable Minutes Calculation -->
-            <app-card>
-              <h2 class="text-lg font-bold text-zinc-900 mb-4">Payable Minutes Calculation</h2>
-              <div class="bg-zinc-50 rounded-lg p-6">
-                <div class="space-y-3">
+            <!-- Payable Minutes Calculation (Legacy - For Reference Only) -->
+            <app-card class="opacity-75">
+              <h2 class="text-sm font-bold text-zinc-700 mb-3">Attendance Minutes (Reference Only - Not Used for Salary)</h2>
+              <p class="text-xs text-zinc-500 mb-4">Sukha payroll is daily-based, not minute-based. Minutes tracked for attendance audit only.</p>
+              <div class="bg-zinc-50 rounded-lg p-4 text-sm">
+                <div class="space-y-2">
                   <div class="flex justify-between">
                     <span class="text-zinc-600">Total Minutes Worked</span>
                     <span class="font-mono font-semibold text-zinc-900">
                       {{ payroll()!.attendanceData.totalMinutesWorked }}
                     </span>
                   </div>
-                  <div class="flex justify-between border-b border-zinc-200 pb-3">
-                    <span class="text-zinc-600">Minus: Approved Leave Minutes</span>
+                  <div class="flex justify-between border-b border-zinc-200 pb-2">
+                    <span class="text-zinc-600">Leave Minutes</span>
                     <span class="font-mono font-semibold text-zinc-900">
                       -{{ payroll()!.leaveData.approvedLeaveMinutes }}
                     </span>
                   </div>
-                  <div class="flex justify-between pt-3">
-                    <span class="font-semibold text-zinc-900">Payable Minutes</span>
-                    <span class="font-mono font-bold text-lg text-emerald-700">
+                  <div class="flex justify-between pt-2">
+                    <span class="text-zinc-600">Payable Minutes</span>
+                    <span class="font-mono text-zinc-700">
                       {{ payroll()!.calculations.payableMinutes }}
                     </span>
                   </div>
@@ -158,34 +159,64 @@ import { IconComponent } from '../../components/ui/icon.component';
               </div>
             </app-card>
 
-            <!-- Regular Pay Amount -->
+            <!-- Final Salary Calculation (Sukha Daily-Based) -->
             <app-card>
-              <h2 class="text-lg font-bold text-zinc-900 mb-4">Regular Pay Amount</h2>
+              <h2 class="text-lg font-bold text-zinc-900 mb-4">Final Salary Calculation (Sukha Rules)</h2>
+              <p class="text-sm text-zinc-600 mb-4">Payroll is calculated daily-based: (Base Salary ÷ 26) × Payable Days</p>
               <div class="bg-zinc-50 rounded-lg p-6">
                 <div class="space-y-3">
-                  <div class="flex justify-between">
-                    <span class="text-zinc-600">Base Salary</span>
-                    <span class="font-mono font-semibold text-zinc-900">
-                      {{ payroll()!.baseSalary | number:'1.0-0' }}
-                    </span>
+                  <!-- Daily Rate Calculation -->
+                  <div class="border-b border-zinc-200 pb-3">
+                    <div class="flex justify-between mb-2">
+                      <span class="text-zinc-600">Base Salary</span>
+                      <span class="font-mono font-semibold text-zinc-900">
+                        {{ payroll()!.baseSalary | number:'1.0-0' }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-zinc-600">÷ 26 Working Days (Sukha)</span>
+                      <span class="font-mono font-semibold text-zinc-900">
+                        = {{ (payroll()!.baseSalary / 26) | number:'1.0-0' }} per day
+                      </span>
+                    </div>
                   </div>
-                  <div class="flex justify-between">
-                    <span class="text-zinc-600">× (Payable Minutes / Expected Minutes)</span>
-                    <span class="font-mono font-semibold text-zinc-900">
-                      {{ payroll()!.calculations.payableMinutes }} / {{ payroll()!.calculations.expectedMinutes }}
-                    </span>
+
+                  <!-- Payable Days Calculation -->
+                  <div class="border-b border-zinc-200 py-3">
+                    <div class="flex justify-between mb-2">
+                      <span class="text-zinc-600">Days Worked</span>
+                      <span class="font-mono font-semibold text-zinc-900">
+                        {{ payroll()!.attendanceData.totalDaysWorked }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between mb-2">
+                      <span class="text-zinc-600">Minus: Unpaid Leave Days</span>
+                      <span class="font-mono font-semibold text-zinc-900">
+                        -{{ payroll()!.leaveData.approvedLeaveDays }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="font-semibold text-zinc-900">Payable Days</span>
+                      <span class="font-mono font-bold text-emerald-700">
+                        = {{ Math.min(26, Math.max(0, payroll()!.attendanceData.totalDaysWorked - payroll()!.leaveData.approvedLeaveDays)) }}
+                      </span>
+                    </div>
                   </div>
-                  <div class="flex justify-between border-b border-zinc-200 pb-3">
-                    <span class="text-zinc-600">Ratio</span>
-                    <span class="font-mono font-semibold text-zinc-900">
-                      {{ (payroll()!.calculations.payableMinutes / payroll()!.calculations.expectedMinutes) | number:'1.2-2' }}
-                    </span>
-                  </div>
-                  <div class="flex justify-between pt-3">
-                    <span class="font-semibold text-zinc-900">Regular Pay Amount</span>
-                    <span class="font-mono font-bold text-lg text-emerald-700">
-                      {{ payroll()!.calculations.regularPayAmount | number:'1.0-0' }}
-                    </span>
+
+                  <!-- Final Salary -->
+                  <div class="pt-3">
+                    <div class="flex justify-between mb-2">
+                      <span class="text-zinc-600">Daily Rate × Payable Days</span>
+                      <span class="font-mono font-semibold text-zinc-900">
+                        {{ (payroll()!.baseSalary / 26) | number:'1.0-0' }} × {{ Math.min(26, Math.max(0, payroll()!.attendanceData.totalDaysWorked - payroll()!.leaveData.approvedLeaveDays)) }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between pt-2 border-t border-zinc-200">
+                      <span class="font-semibold text-zinc-900 text-lg">Final Salary</span>
+                      <span class="font-mono font-bold text-xl text-emerald-700">
+                        {{ payroll()!.calculations.regularPayAmount | number:'1.0-0' }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -288,6 +319,9 @@ export class PayrollDetailComponent implements OnInit {
   payroll = signal<Payroll | null>(null);
   employeeName = signal<string>('Loading...');
   isLoading = signal(false);
+
+  // Expose Math object to template for calculations
+  Math = Math;
 
   ngOnInit() {
     this.route.params.subscribe(params => {

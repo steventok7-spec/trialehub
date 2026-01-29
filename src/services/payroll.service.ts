@@ -79,12 +79,18 @@ export class PayrollService {
   }
 
   // Generate payroll for a specific employee for a specific month
+  // SUKHA PAYROLL RULES:
+  // - 1 month = 26 working days (fixed)
+  // - Fixed off days = 4 days per month (not paid, not penalized)
+  // - Leave/izin = UNPAID (deducted from payable days)
+  // - Shift = 9 hours on-site, 1 hour break, 8 hours effective work
+  // - Payroll is DAILY-BASED, not minute-based
   async generatePayrollForEmployee(
     employeeId: string,
     month: number,
     year: number,
     baseSalary: number,
-    workingDays: number = 20,
+    workingDays: number = 26,
     workingMinutesPerDay: number = 480
   ): Promise<Payroll | null> {
     this.isLoading.set(true);
@@ -101,37 +107,49 @@ export class PayrollService {
       // Get attendance data for the month
       const attendanceData = await this.getMonthAttendanceData(employeeId, month, year);
 
-      // Get approved leave data for the month
+      // Get approved leave data for the month (UNPAID in Sukha)
       const leaveData = await this.getMonthLeaveData(employeeId, month, year);
 
-      // Calculate payable minutes
+      // SUKHA CALCULATION (DAILY-BASED):
+      // dailyRate = baseSalary / 26
+      // payableDays = daysWorked - unpaidLeaveDays
+      // salary = dailyRate × payableDays
+
+      const dailyRate = baseSalary / workingDays; // Sukha: 26 working days per month
+
+      // Payable days = days actually worked minus unpaid leave days
+      // Capped between 0 and workingDays (26)
+      const payableDays = Math.max(
+        0,
+        Math.min(workingDays, attendanceData.totalDaysWorked - leaveData.approvedLeaveDays)
+      );
+
+      // Final salary = daily rate × payable days
+      const regularPayAmount = dailyRate * payableDays;
+
+      // Create payroll document (keep minute fields for backward compatibility)
       const expectedMinutes = workingDays * workingMinutesPerDay;
-      const payableMinutes =
-        attendanceData.totalMinutesWorked - leaveData.approvedLeaveMinutes;
+      const payableMinutes = attendanceData.totalMinutesWorked - leaveData.approvedLeaveMinutes;
 
-      // Calculate regular pay amount
-      const regularPayAmount = baseSalary * (payableMinutes / expectedMinutes);
-
-      // Create payroll document
       const payrollDoc: Payroll = {
         employeeId,
         month,
         year,
         baseSalary,
-        workingDays,
+        workingDays, // Sukha: always 26
         workingMinutesPerDay,
         attendanceData,
         leaveData,
         calculations: {
-          payableMinutes,
-          expectedMinutes,
-          regularPayAmount
+          payableMinutes, // Legacy field (kept for backward compatibility)
+          expectedMinutes, // Legacy field (kept for backward compatibility)
+          regularPayAmount // FINAL SALARY (daily-based)
         },
         adjustments: {
           bonuses: [],
           deductions: []
         },
-        totalAmount: regularPayAmount,
+        totalAmount: regularPayAmount, // This is the FINAL salary in Sukha
         status: 'generated'
       };
 
