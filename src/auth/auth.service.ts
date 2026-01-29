@@ -17,11 +17,11 @@ import {
   where,
   getDocs,
   collection,
-  updateDoc
+  updateDoc,
+  limit
 } from 'firebase/firestore';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { getAuthInstance, getFirestoreInstance } from '../core/firebase.config';
-import { OWNER_EMAIL } from '../core/constants';
 
 export interface AuthUser {
   uid: string;
@@ -112,7 +112,11 @@ export class AuthService {
     this.isLoading.set(true);
     this.error.set(null);
     try {
-      const isOwner = email.toLowerCase() === OWNER_EMAIL.toLowerCase();
+      // Check if this is the first user ever created
+      const usersQuery = query(collection(this.firestore, 'users'), limit(1));
+      const usersSnapshot = await getDocs(usersQuery);
+      const isFirstUser = usersSnapshot.empty;
+      const isOwner = isFirstUser;
 
       const result = await createUserWithEmailAndPassword(this.auth, email, password);
 

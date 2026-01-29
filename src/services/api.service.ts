@@ -1,5 +1,5 @@
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { from, Observable, of, map, switchMap, catchError, throwError } from 'rxjs';
 import {
   EmployeeProfile,
@@ -11,6 +11,7 @@ import {
   Admin,
   EmployeeHistory
 } from '../models';
+import { AuthService, AuthUser } from '../auth/auth.service';
 
 /** Response type for database status check */
 interface DatabaseStatus {
@@ -73,33 +74,89 @@ interface SupabaseAttendance {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-
-  // PHASE 0: STUBBED OUT - Supabase backend has been removed
-  // These methods are stubbed to return empty/default responses
-  // Will be replaced with Firebase calls in PHASE 1
+  private authService = inject(AuthService);
 
   // --- Database Setup Check ---
 
   checkDatabaseSetup(): Observable<DatabaseStatus> {
-    console.warn('ApiService.checkDatabaseSetup() is stubbed - Supabase removed, awaiting Firebase implementation');
+    // Firebase doesn't require setup like Supabase - it's always ready
     return of({ ready: true });
   }
 
   // --- Authentication ---
 
   adminLogin(creds: { username: string; password: string }): Observable<AdminLoginResponse> {
-    console.warn('ApiService.adminLogin() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented. Please wait for Firebase migration.' });
+    // Username is treated as email for Firebase Auth
+    const email = creds.username?.trim().toLowerCase() || '';
+    const password = creds.password || '';
+
+    if (!email || !password) {
+      return of({ success: false, error: 'Email and password are required.' });
+    }
+
+    return from(this.authService.login(email, password)).pipe(
+      switchMap((user: AuthUser) => {
+        // Check if user is owner
+        if (user.role !== 'owner') {
+          return of({ success: false, error: 'Access denied: Not an owner account.' });
+        }
+
+        return of({
+          success: true,
+          admin: {
+            username: user.email,
+            name: user.name,
+            role: user.role
+          }
+        });
+      }),
+      catchError((err) => {
+        const errorMessage = err?.message || 'Login failed. Please try again.';
+        console.error('Admin login failed:', err);
+        return of({ success: false, error: errorMessage });
+      })
+    );
   }
 
   employeeLogin(creds: { email: string; pin: string }): Observable<EmployeeLoginResponse> {
-    console.warn('ApiService.employeeLogin() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented. Please wait for Firebase migration.' });
+    const email = creds.email?.trim().toLowerCase() || '';
+    const password = creds.pin || '';
+
+    if (!email || !password) {
+      return of({ success: false, error: 'Email and PIN are required.' });
+    }
+
+    return from(this.authService.login(email, password)).pipe(
+      switchMap((user: AuthUser) => {
+        // Employees can be owner or employee role
+        // (employees created after first owner signup)
+        return of({
+          success: true,
+          employee: {
+            id: user.uid,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            status: 'active'
+          }
+        });
+      }),
+      catchError((err) => {
+        const errorMessage = err?.message || 'Login failed. Please try again.';
+        console.error('Employee login failed:', err);
+        return of({ success: false, error: errorMessage });
+      })
+    );
   }
 
   async signOut(): Promise<{ error: Error | null }> {
-    console.warn('ApiService.signOut() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return { error: null };
+    try {
+      await this.authService.logout();
+      return { error: null };
+    } catch (err) {
+      console.error('Sign out failed:', err);
+      return { error: err instanceof Error ? err : new Error('Sign out failed') };
+    }
   }
 
   // --- Admin Dashboard Data ---
