@@ -196,20 +196,20 @@ export class ApiService {
 
     return from((async () => {
       try {
-        const employeeProfile: Partial<EmployeeProfile> = {
-          email: data.email,
-          name: data.name,
-          role: 'employee',
+        const employeeProfile = {
+          email: data.email!,
+          name: data.name!,
+          role: 'employee' as const,
           job_title: data.job_title,
           employment_type: data.employment_type,
           status: data.status || 'active',
-          phone_number: data['phone_number'],
-          date_of_birth: data['date_of_birth'],
-          gender: data['gender'],
-          start_date: data['start_date']
+          phone_number: data['phone_number'] as string | undefined,
+          date_of_birth: data['date_of_birth'] as string | undefined,
+          gender: data['gender'] as 'male' | 'female' | 'other' | undefined,
+          start_date: data['start_date'] as string | undefined
         };
 
-        const employeeId = await this.employeeService.createEmployee(employeeProfile);
+        const employeeId = await this.employeeService.createEmployee(employeeProfile as any);
 
         if (!employeeId) {
           return {
@@ -243,19 +243,19 @@ export class ApiService {
 
     return from((async () => {
       try {
-        const updates: Partial<FullEmployeeDetails> = {
+        const updates = {
           name: data.name,
           email: data.email,
           job_title: data.job_title,
           employment_type: data.employment_type,
           status: data.status,
-          phone_number: data['phone_number'],
-          date_of_birth: data['date_of_birth'],
-          gender: data['gender'],
-          start_date: data['start_date']
+          phone_number: data['phone_number'] as string | undefined,
+          date_of_birth: data['date_of_birth'] as string | undefined,
+          gender: data['gender'] as 'male' | 'female' | 'other' | undefined,
+          start_date: data['start_date'] as string | undefined
         };
 
-        const success = await this.employeeService.updateEmployee(data.id, updates);
+        const success = await this.employeeService.updateEmployee(data.id, updates as any);
         return { success, error: success ? undefined : this.employeeService.error() || 'Failed to update employee.' };
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to update employee.';
@@ -383,9 +383,9 @@ export class ApiService {
     );
   }
 
-  getAllAttendance(): Observable<Array<SupabaseAttendance & { employeeName: string; hours: string }>> {
+  getAllAttendance(): Observable<Array<{ employeeName: string; hours: string; id: string; employee_id: string; date: string; check_in: string | null; check_out: string | null; total_minutes: number | null }>> {
     return from(this.attendanceService.getAllAttendance()).pipe(
-      switchMap(async (records) => {
+      switchMap(async (records: any[]) => {
         // Enhance with employee names
         const enhanced = await Promise.all(
           records.map(async (record) => {
