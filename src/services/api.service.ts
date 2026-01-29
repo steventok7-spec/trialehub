@@ -12,6 +12,7 @@ import {
   EmployeeHistory
 } from '../models';
 import { AuthService, AuthUser } from '../auth/auth.service';
+import { EmployeeService } from './employee.service';
 
 /** Response type for database status check */
 interface DatabaseStatus {
@@ -75,6 +76,7 @@ interface SupabaseAttendance {
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private authService = inject(AuthService);
+  private employeeService = inject(EmployeeService);
 
   // --- Database Setup Check ---
 
@@ -169,23 +171,107 @@ export class ApiService {
   // --- Employee Management (Admin) ---
 
   getEmployees(): Observable<Employee[]> {
-    console.warn('ApiService.getEmployees() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of([]);
+    return from(this.employeeService.getAllEmployees()).pipe(
+      catchError((err) => {
+        console.error('Failed to fetch employees:', err);
+        return of([]);
+      })
+    );
   }
 
   addEmployee(data: Partial<Employee>): Observable<{ success: boolean; employee?: Employee; error?: string }> {
-    console.warn('ApiService.addEmployee() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    // Validate required fields
+    if (!data.name?.trim() || !data.email?.trim()) {
+      return of({ success: false, error: 'Name and email are required.' });
+    }
+
+    return from((async () => {
+      try {
+        const employeeProfile: Partial<EmployeeProfile> = {
+          email: data.email,
+          name: data.name,
+          role: 'employee',
+          job_title: data.job_title,
+          employment_type: data.employment_type,
+          status: data.status || 'active',
+          phone_number: data['phone_number'],
+          date_of_birth: data['date_of_birth'],
+          gender: data['gender'],
+          start_date: data['start_date']
+        };
+
+        const employeeId = await this.employeeService.createEmployee(employeeProfile);
+
+        if (!employeeId) {
+          return {
+            success: false,
+            error: this.employeeService.error() || 'Failed to create employee.'
+          };
+        }
+
+        return {
+          success: true,
+          employee: {
+            ...data,
+            id: employeeId,
+            role: 'employee',
+            status: 'active'
+          } as Employee
+        };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to create employee.';
+        console.error('Add employee failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   updateEmployee(data: Partial<Employee> & { id: string }): Observable<OperationResponse> {
-    console.warn('ApiService.updateEmployee() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    // Validate required ID
+    if (!data.id) {
+      return of({ success: false, error: 'Employee ID is required.' });
+    }
+
+    return from((async () => {
+      try {
+        const updates: Partial<FullEmployeeDetails> = {
+          name: data.name,
+          email: data.email,
+          job_title: data.job_title,
+          employment_type: data.employment_type,
+          status: data.status,
+          phone_number: data['phone_number'],
+          date_of_birth: data['date_of_birth'],
+          gender: data['gender'],
+          start_date: data['start_date']
+        };
+
+        const success = await this.employeeService.updateEmployee(data.id, updates);
+        return { success, error: success ? undefined : this.employeeService.error() || 'Failed to update employee.' };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to update employee.';
+        console.error('Update employee failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
   }
 
   deleteEmployee(id: string): Observable<OperationResponse> {
-    console.warn('ApiService.deleteEmployee() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!id) {
+      return of({ success: false, error: 'Employee ID is required.' });
+    }
+
+    return from(this.employeeService.deactivateEmployee(id)).pipe(
+      map((success) => ({
+        success,
+        error: success ? undefined : this.employeeService.error() || 'Failed to deactivate employee.'
+      })),
+      catchError((err) => {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to deactivate employee.';
+        console.error('Delete employee failed:', err);
+        return of({ success: false, error: errorMessage });
+      })
+    );
   }
 
   updateSchedule(data: {
