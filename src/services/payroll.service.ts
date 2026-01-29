@@ -1,140 +1,214 @@
 
-
 import { Injectable, signal, inject } from '@angular/core';
 import {
   Firestore,
   collection,
-  doc,
   getDocs,
   query,
   where,
   addDoc,
   serverTimestamp,
-  orderBy
+  orderBy,
+  getDocs as getDocsRaw
 } from 'firebase/firestore';
-import { PayrollEntry } from '../models';
+import { Payroll } from '../models/payroll.model';
 import { ToastService } from './toast.service';
+import { AuthService } from '../auth/auth.service';
 import { EmployeeService } from './employee.service';
 import { AttendanceService } from './attendance.service';
 import { RequestsService } from './requests.service';
-
-export interface PayrollRecord {
-  id?: string;
-  employeeId: string;
-  month: number;
-  year: number;
-  baseSalary: number;
-  attendanceBonus: number;
-  deductions: number;
-  approvedClaims: number;
-  totalPay: number;
-  createdAt?: Date;
-  status: 'pending' | 'approved' | 'paid';
-}
 
 @Injectable({ providedIn: 'root' })
 export class PayrollService {
   private firestore = inject(Firestore);
   private toastService = inject(ToastService);
+  private authService = inject(AuthService);
   private employeeService = inject(EmployeeService);
   private attendanceService = inject(AttendanceService);
   private requestsService = inject(RequestsService);
 
-  payrollRecords = signal<PayrollRecord[]>([]);
+  payroll = signal<Payroll[]>([]);
   isLoading = signal(false);
+  error = signal<string | null>(null);
 
-  // Calculate payroll for an employee
-  async calculatePayroll(
-    employeeId: string,
-    month: number,
-    year: number
-  ): Promise<PayrollRecord | null> {
+  // Helper: Check if current user is owner
+  private isOwner(): boolean {
+    return this.authService.isOwner();
+  }
+
+  // Helper: Get current user's UID
+  private getCurrentUserId(): string | null {
+    return this.authService.currentUser()?.uid || null;
+  }
+
+  // Helper: Get employee ID for current user
+  private async getEmployeeIdForUser(userId: string): Promise<string | null> {
     try {
-      const employee = await this.employeeService.getEmployeeById(employeeId);
-
-      if (!employee) {
-        throw new Error('Employee not found');
+      const q = query(
+        collection(this.firestore, 'employees'),
+        where('user_id', '==', userId)
+      );
+      const snapshot = await getDocsRaw(q);
+      if (!snapshot.empty) {
+        return snapshot.docs[0].id;
       }
-
-      const monthlyHours = await this.attendanceService.getMonthlyHours(employeeId, month, year);
-      const requests = await this.requestsService.getEmployeeRequests(employeeId);
-
-      // Calculate approved claims
-      const approvedClaims = requests
-        .filter(r => r.status === 'approved' && r.type === 'claim')
-        .reduce((total, r) => total + (r.amount || 0), 0);
-
-      // Determine salary based on employment type
-      let baseSalary = 0;
-      let totalPay = 0;
-
-      if (employee.employment_type === 'full_time') {
-        baseSalary = employee.monthly_salary_idr || 0;
-        totalPay = baseSalary + approvedClaims;
-      } else if (employee.employment_type === 'part_time') {
-        const hourlyRate = employee.hourly_rate_idr || 0;
-        baseSalary = monthlyHours * hourlyRate;
-        totalPay = baseSalary + approvedClaims;
-      }
-
-      const record: PayrollRecord = {
-        employeeId,
-        month,
-        year,
-        baseSalary,
-        attendanceBonus: 0,
-        deductions: 0,
-        approvedClaims,
-        totalPay,
-        status: 'pending'
-      };
-
-      return record;
-    } catch (err) {
-      console.error('Error calculating payroll:', err);
+      return null;
+    } catch {
       return null;
     }
   }
 
-  // Generate payroll for all employees
-  async generateMonthlyPayroll(month: number, year: number): Promise<PayrollRecord[]> {
+  // Helper: Check if payroll already exists for employee/month/year
+  private async payrollExists(
+    employeeId: string,
+    month: number,
+    year: number
+  ): Promise<boolean> {
+    try {
+      const q = query(
+        collection(this.firestore, 'payroll'),
+        where('employeeId', '==', employeeId),
+        where('month', '==', month),
+        where('year', '==', year)
+      );
+      const snapshot = await getDocsRaw(q);
+      return !snapshot.empty;
+    } catch {
+      return false;
+    }
+  }
+
+  // Generate payroll for a specific employee for a specific month
+  // SUKHA PAYROLL RULES:
+  // - 1 month = 26 working days (fixed)
+  // - Fixed off days = 4 days per month (not paid, not penalized)
+  // - Leave/izin = UNPAID (deducted from payable days)
+  // - Shift = 9 hours on-site, 1 hour break, 8 hours effective work
+  // - Payroll is DAILY-BASED, not minute-based
+  async generatePayrollForEmployee(
+    employeeId: string,
+    month: number,
+    year: number,
+    baseSalary: number,
+    workingDays: number = 26,
+    workingMinutesPerDay: number = 480
+  ): Promise<Payroll | null> {
     this.isLoading.set(true);
+    this.error.set(null);
 
     try {
-      const employees = await this.employeeService.getAllEmployees();
-      const payrollRecords: PayrollRecord[] = [];
-
-      for (const employee of employees) {
-        const record = await this.calculatePayroll(employee.id, month, year);
-        if (record) {
-          payrollRecords.push(record);
-        }
+      // Check if payroll already exists for this employee/month/year
+      if (await this.payrollExists(employeeId, month, year)) {
+        throw new Error(
+          `Payroll already exists for employee ${employeeId} in ${month}/${year}`
+        );
       }
 
-      // Save records to Firestore
-      for (const record of payrollRecords) {
-        await addDoc(collection(this.firestore, 'payroll'), {
-          ...record,
-          createdAt: serverTimestamp()
-        });
-      }
+      // Get attendance data for the month
+      const attendanceData = await this.getMonthAttendanceData(employeeId, month, year);
 
-      this.toastService.success(`Payroll generated for ${payrollRecords.length} employees`);
-      return payrollRecords;
+      // Get approved leave data for the month (UNPAID in Sukha)
+      const leaveData = await this.getMonthLeaveData(employeeId, month, year);
+
+      // SUKHA CALCULATION (DAILY-BASED):
+      // dailyRate = baseSalary / 26
+      // payableDays = daysWorked - unpaidLeaveDays
+      // salary = dailyRate × payableDays
+
+      const dailyRate = baseSalary / workingDays; // Sukha: 26 working days per month
+
+      // Payable days = days actually worked minus unpaid leave days
+      // Capped between 0 and workingDays (26)
+      const payableDays = Math.max(
+        0,
+        Math.min(workingDays, attendanceData.totalDaysWorked - leaveData.approvedLeaveDays)
+      );
+
+      // Final salary = daily rate × payable days
+      const regularPayAmount = dailyRate * payableDays;
+
+      // Create payroll document (keep minute fields for backward compatibility)
+      const expectedMinutes = workingDays * workingMinutesPerDay;
+      const payableMinutes = attendanceData.totalMinutesWorked - leaveData.approvedLeaveMinutes;
+
+      const payrollDoc: Payroll = {
+        employeeId,
+        month,
+        year,
+        baseSalary,
+        workingDays, // Sukha: always 26
+        workingMinutesPerDay,
+        attendanceData,
+        leaveData,
+        calculations: {
+          payableMinutes, // Legacy field (kept for backward compatibility)
+          expectedMinutes, // Legacy field (kept for backward compatibility)
+          regularPayAmount // FINAL SALARY (daily-based)
+        },
+        adjustments: {
+          bonuses: [],
+          deductions: []
+        },
+        totalAmount: regularPayAmount, // This is the FINAL salary in Sukha
+        status: 'generated'
+      };
+
+      // Save to Firestore
+      const docRef = await addDoc(collection(this.firestore, 'payroll'), {
+        ...payrollDoc,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      this.toastService.success(
+        `Payroll generated for employee ${employeeId} for ${month}/${year}`
+      );
+      return { ...payrollDoc, id: docRef.id };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate payroll';
+      this.error.set(message);
       this.toastService.error(message);
-      return [];
+      return null;
     } finally {
       this.isLoading.set(false);
     }
   }
 
-  // Get payroll records for employee
-  async getEmployeePayroll(employeeId: string): Promise<PayrollRecord[]> {
+  // Get all payroll records (with access control)
+  async getAllPayroll(): Promise<Payroll[]> {
     this.isLoading.set(true);
+    this.error.set(null);
 
     try {
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+
+      // If owner, get all payroll records
+      if (this.isOwner()) {
+        const q = query(
+          collection(this.firestore, 'payroll'),
+          orderBy('year', 'desc'),
+          orderBy('month', 'desc')
+        );
+
+        const snapshot = await getDocsRaw(q);
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Payroll));
+
+        this.payroll.set(data);
+        return data;
+      }
+
+      // If employee, get only their own payroll
+      const employeeId = await this.getEmployeeIdForUser(userId);
+      if (!employeeId) {
+        throw new Error('Employee record not found for this user');
+      }
+
       const q = query(
         collection(this.firestore, 'payroll'),
         where('employeeId', '==', employeeId),
@@ -142,13 +216,17 @@ export class PayrollService {
         orderBy('month', 'desc')
       );
 
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+      const snapshot = await getDocsRaw(q);
+      const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      } as PayrollRecord));
+      } as Payroll));
+
+      this.payroll.set(data);
+      return data;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch payroll records';
+      const message = err instanceof Error ? err.message : 'Failed to fetch payroll';
+      this.error.set(message);
       this.toastService.error(message);
       return [];
     } finally {
@@ -156,11 +234,58 @@ export class PayrollService {
     }
   }
 
-  // Get payroll for specific month (owner only)
-  async getMonthlyPayroll(month: number, year: number): Promise<PayrollRecord[]> {
+  // Get payroll for specific employee (with access control)
+  async getEmployeePayroll(employeeId: string): Promise<Payroll[]> {
     this.isLoading.set(true);
+    this.error.set(null);
 
     try {
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+
+      // If not owner, can only view own payroll
+      if (!this.isOwner()) {
+        const currentEmployeeId = await this.getEmployeeIdForUser(userId);
+        if (currentEmployeeId !== employeeId) {
+          throw new Error('Access denied: Cannot view other employees payroll');
+        }
+      }
+
+      const q = query(
+        collection(this.firestore, 'payroll'),
+        where('employeeId', '==', employeeId),
+        orderBy('year', 'desc'),
+        orderBy('month', 'desc')
+      );
+
+      const snapshot = await getDocsRaw(q);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Payroll));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch employee payroll';
+      this.error.set(message);
+      this.toastService.error(message);
+      return [];
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  // Get payroll for specific month
+  async getMonthPayroll(month: number, year: number): Promise<Payroll[]> {
+    this.isLoading.set(true);
+    this.error.set(null);
+
+    try {
+      // Owner only
+      if (!this.isOwner()) {
+        throw new Error('Access denied: Only owners can view monthly payroll');
+      }
+
       const q = query(
         collection(this.firestore, 'payroll'),
         where('month', '==', month),
@@ -168,20 +293,128 @@ export class PayrollService {
         orderBy('employeeId', 'asc')
       );
 
-      const snapshot = await getDocs(q);
-      const records = snapshot.docs.map(doc => ({
+      const snapshot = await getDocsRaw(q);
+      const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      } as PayrollRecord));
+      } as Payroll));
 
-      this.payrollRecords.set(records);
-      return records;
+      this.payroll.set(data);
+      return data;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch payroll';
+      const message = err instanceof Error ? err.message : 'Failed to fetch monthly payroll';
+      this.error.set(message);
       this.toastService.error(message);
       return [];
     } finally {
       this.isLoading.set(false);
+    }
+  }
+
+  // Helper: Get attendance data for a month
+  private async getMonthAttendanceData(
+    employeeId: string,
+    month: number,
+    year: number
+  ): Promise<{
+    totalMinutesWorked: number;
+    totalDaysWorked: number;
+    expectedMinutes: number;
+  }> {
+    try {
+      // Get all attendance records for this employee in the month
+      const firstDay = new Date(year, month - 1, 1).toISOString().split('T')[0];
+      const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+
+      const q = query(
+        collection(this.firestore, 'attendance'),
+        where('employee_id', '==', employeeId),
+        where('date', '>=', firstDay),
+        where('date', '<=', lastDay)
+      );
+
+      const snapshot = await getDocsRaw(q);
+      const records = snapshot.docs.map(doc => doc.data());
+
+      const totalMinutesWorked = records.reduce(
+        (sum, rec) => sum + (rec['total_minutes'] || 0),
+        0
+      );
+      const totalDaysWorked = records.length;
+      const expectedMinutes = 0; // Will be set by caller
+
+      return {
+        totalMinutesWorked,
+        totalDaysWorked,
+        expectedMinutes
+      };
+    } catch (err) {
+      console.error('Error fetching attendance data:', err);
+      return {
+        totalMinutesWorked: 0,
+        totalDaysWorked: 0,
+        expectedMinutes: 0
+      };
+    }
+  }
+
+  // Helper: Get approved leave data for a month
+  private async getMonthLeaveData(
+    employeeId: string,
+    month: number,
+    year: number
+  ): Promise<{
+    approvedLeaveMinutes: number;
+    approvedLeaveDays: number;
+  }> {
+    try {
+      // Get all approved leave requests that overlap with this month
+      const q = query(
+        collection(this.firestore, 'leave_requests'),
+        where('employeeId', '==', employeeId),
+        where('status', '==', 'approved')
+      );
+
+      const snapshot = await getDocsRaw(q);
+      const records = snapshot.docs.map(doc => doc.data());
+
+      let approvedLeaveDays = 0;
+
+      for (const record of records) {
+        const startDate = new Date(record['startDate']);
+        const endDate = new Date(record['endDate']);
+
+        // Check if leave overlaps with the month
+        const monthStart = new Date(year, month - 1, 1);
+        const monthEnd = new Date(year, month, 0);
+
+        if (startDate <= monthEnd && endDate >= monthStart) {
+          // Count days in this month
+          const countStart = new Date(
+            Math.max(startDate.getTime(), monthStart.getTime())
+          );
+          const countEnd = new Date(Math.min(endDate.getTime(), monthEnd.getTime()));
+          const daysInMonth =
+            Math.ceil(
+              (countEnd.getTime() - countStart.getTime()) / (1000 * 60 * 60 * 24)
+            ) + 1;
+
+          approvedLeaveDays += daysInMonth;
+        }
+      }
+
+      const approvedLeaveMinutes = approvedLeaveDays * 480; // 8 hours = 480 minutes
+
+      return {
+        approvedLeaveMinutes,
+        approvedLeaveDays
+      };
+    } catch (err) {
+      console.error('Error fetching leave data:', err);
+      return {
+        approvedLeaveMinutes: 0,
+        approvedLeaveDays: 0
+      };
     }
   }
 }

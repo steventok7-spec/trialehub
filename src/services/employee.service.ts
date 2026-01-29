@@ -21,17 +21,29 @@ import {
 import { Employee, EmployeeProfile, EmployeePrivateDetails, FullEmployeeDetails } from '../models';
 import { ToastService } from './toast.service';
 import { LoadingService } from './loading.service';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable({ providedIn: 'root' })
 export class EmployeeService {
   private firestore = inject(Firestore);
   private toastService = inject(ToastService);
   private loadingService = inject(LoadingService);
+  private authService = inject(AuthService);
 
   employees = signal<Employee[]>([]);
   currentEmployee = signal<FullEmployeeDetails | null>(null);
   isLoading = signal(false);
   error = signal<string | null>(null);
+
+  // Helper: Check if current user is owner
+  private isOwner(): boolean {
+    return this.authService.isOwner();
+  }
+
+  // Helper: Get current user's UID
+  private getCurrentUserId(): string | null {
+    return this.authService.currentUser()?.uid || null;
+  }
 
   // Get all employees (owner only)
   async getAllEmployees(): Promise<Employee[]> {
@@ -91,14 +103,32 @@ export class EmployeeService {
     }
   }
 
-  // Create employee
+  // Create employee (owner only)
   async createEmployee(employee: Omit<EmployeeProfile, 'id'>): Promise<string | null> {
     this.isLoading.set(true);
     this.error.set(null);
 
     try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can create employees';
+        this.error.set(message);
+        this.toastService.error(message);
+        return null;
+      }
+
+      const ownerId = this.getCurrentUserId();
+      if (!ownerId) {
+        const message = 'Unable to determine current owner';
+        this.error.set(message);
+        this.toastService.error(message);
+        return null;
+      }
+
       const data = {
         ...employee,
+        user_id: null, // Nullable - will be linked later when employee signs up
+        createdBy: ownerId, // Owner's UID
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         status: employee.status || 'active'
@@ -117,12 +147,20 @@ export class EmployeeService {
     }
   }
 
-  // Update employee
+  // Update employee (owner only)
   async updateEmployee(id: string, updates: Partial<FullEmployeeDetails>): Promise<boolean> {
     this.isLoading.set(true);
     this.error.set(null);
 
     try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can update employees';
+        this.error.set(message);
+        this.toastService.error(message);
+        return false;
+      }
+
       const { id: _, ...cleanUpdates } = updates;
       await updateDoc(doc(this.firestore, 'employees', id), {
         ...cleanUpdates,
@@ -141,12 +179,51 @@ export class EmployeeService {
     }
   }
 
-  // Delete employee
+  // Deactivate employee (owner only) - soft delete instead of hard delete
+  async deactivateEmployee(id: string): Promise<boolean> {
+    this.isLoading.set(true);
+    this.error.set(null);
+
+    try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can deactivate employees';
+        this.error.set(message);
+        this.toastService.error(message);
+        return false;
+      }
+
+      await updateDoc(doc(this.firestore, 'employees', id), {
+        status: 'inactive',
+        updatedAt: serverTimestamp()
+      });
+      this.employees.update(emp => emp.filter(e => e.id !== id));
+      this.toastService.success('Employee deactivated successfully');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to deactivate employee';
+      this.error.set(message);
+      this.toastService.error(message);
+      return false;
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  // Delete employee (owner only, hard delete)
   async deleteEmployee(id: string): Promise<boolean> {
     this.isLoading.set(true);
     this.error.set(null);
 
     try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can delete employees';
+        this.error.set(message);
+        this.toastService.error(message);
+        return false;
+      }
+
       await deleteDoc(doc(this.firestore, 'employees', id));
       this.employees.update(emp => emp.filter(e => e.id !== id));
       this.toastService.success('Employee deleted successfully');

@@ -2,99 +2,190 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users collection - authenticated users can read their own profile
-    match /users/{uid} {
-      allow read: if request.auth.uid == uid;
-      allow create: if request.auth.uid == uid &&
-                      request.resource.data.email == request.auth.token.email;
-      allow update: if request.auth.uid == uid;
-      allow delete: if false; // Never allow user deletion
+    /* ==================== HELPER FUNCTIONS ==================== */
+
+    // Check if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // Employees collection
-    match /employees/{employeeId} {
-      // Owners can read/write all employees
-      allow read, write: if hasRole('owner');
-
-      // Employees can read their own data
-      allow read: if hasRole('employee') &&
-                     isEmployeeDataOwned(employeeId);
-
-      // Employees cannot write their own data (only admins)
-      allow write: if false;
-
-      // Helper function to check employee ownership
-      function isEmployeeDataOwned(employeeId) {
-        let currentUserEmail = request.auth.token.email;
-        return get(/databases/$(database)/documents/employees/$(employeeId)).data.email == currentUserEmail;
-      }
+    // Check if current user is owner
+    function isOwner() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
     }
 
-    // Attendance collection
-    match /attendance/{attendanceId} {
-      // Owners can read all attendance
-      allow read: if hasRole('owner');
-
-      // Employees can read/write their own attendance
-      allow read: if hasRole('employee') &&
-                     resource.data.employeeId == getCurrentUserId();
-      allow create: if hasRole('employee') &&
-                       request.resource.data.employeeId == getCurrentUserId();
-      allow update: if hasRole('employee') &&
-                       resource.data.employeeId == getCurrentUserId();
-      allow delete: if hasRole('owner');
-
-      // Owners can update any attendance
-      allow update: if hasRole('owner');
+    // Check if current user is an employee
+    function isEmployee() {
+      return isSignedIn()
+        && !isOwner();
     }
 
-    // Requests collection
-    match /requests/{requestId} {
-      // Owners can read all requests
-      allow read: if hasRole('owner');
-
-      // Employees can read/write their own requests
-      allow read: if hasRole('employee') &&
-                     resource.data.employeeId == getCurrentUserId();
-      allow create: if hasRole('employee') &&
-                       request.resource.data.employeeId == getCurrentUserId();
-
-      // Employees cannot modify requests (only owners can approve/reject)
-      allow update: if hasRole('owner');
-      allow delete: if hasRole('owner');
+    // Check if an employee record belongs to the current authenticated user
+    // Compares the employee's user_id field with request.auth.uid
+    function belongsToCurrentUser(employeeId) {
+      return exists(/databases/$(database)/documents/employees/$(employeeId))
+        && get(/databases/$(database)/documents/employees/$(employeeId)).data.user_id == request.auth.uid;
     }
 
-    // Shifts collection
-    match /shifts/{shiftId} {
-      // Owners can read/write all shifts
-      allow read, write: if hasRole('owner');
-
-      // Employees can read their own shifts
-      allow read: if hasRole('employee') &&
-                     resource.data.employeeId == getCurrentUserId();
-    }
-
-    // Payroll collection
-    match /payroll/{payrollId} {
-      // Owners can read/write all payroll
-      allow read, write: if hasRole('owner');
-
-      // Employees can read their own payroll
-      allow read: if hasRole('employee') &&
-                     resource.data.employeeId == getCurrentUserId();
-    }
-
-    // Helper functions
-    function hasRole(role) {
-      return request.auth != null &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
-    }
-
+    // Get the current user's auth UID
     function getCurrentUserId() {
       return request.auth.uid;
     }
 
-    // Prevent direct write to root
+    /* ==================== USERS COLLECTION ==================== */
+
+    match /users/{userId} {
+      // Users can read their own profile or if owner
+      allow read: if isSignedIn()
+        && (request.auth.uid == userId || isOwner());
+
+      // Users can write to their own profile (signup/setup)
+      allow create: if isSignedIn()
+        && request.auth.uid == userId;
+
+      // Users can update their own profile
+      allow update: if isSignedIn()
+        && request.auth.uid == userId;
+
+      // No deletes
+      allow delete: if false;
+    }
+
+    /* ==================== EMPLOYEES COLLECTION ==================== */
+
+    match /employees/{employeeId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(employeeId))
+        );
+
+      // Write: Owner only
+      allow write: if isSignedIn() && isOwner();
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== SHIFTS COLLECTION ==================== */
+
+    match /shifts/{shiftId} {
+      // Read: Owner only
+      allow read: if isSignedIn() && isOwner();
+
+      // Write: Owner only
+      allow write: if isSignedIn() && isOwner();
+
+      // No deletes
+      allow delete: if false;
+    }
+
+    /* ==================== ATTENDANCE COLLECTION ==================== */
+
+    match /attendance/{attendanceId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employee_id))
+        );
+
+      // Create: Authenticated users can create, service verifies employee_id ownership
+      allow create: if isSignedIn();
+
+      // Update: Owner can update any, employees can update their own
+      allow update: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employee_id))
+        );
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== LEAVE REQUESTS COLLECTION ==================== */
+
+    match /leave_requests/{leaveId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employeeId))
+        );
+
+      // Create: Authenticated users can create, service verifies employee_id ownership
+      allow create: if isSignedIn();
+
+      // Update: Owner only (approval workflow)
+      allow update: if isSignedIn() && isOwner();
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== PERMISSION REQUESTS COLLECTION ==================== */
+
+    match /permission_requests/{permissionId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employeeId))
+        );
+
+      // Create: Authenticated users can create, service verifies employee_id ownership
+      allow create: if isSignedIn();
+
+      // Update: Owner only (approval workflow)
+      allow update: if isSignedIn() && isOwner();
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== REQUESTS COLLECTION (LEGACY - EXPENSE CLAIMS) ==================== */
+
+    match /requests/{requestId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employee_id))
+        );
+
+      // Create: Authenticated users can create, service verifies employee_id ownership
+      allow create: if isSignedIn();
+
+      // Update: Owner only
+      allow update: if isSignedIn() && isOwner();
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== PAYROLL COLLECTION ==================== */
+
+    match /payroll/{payrollId} {
+      // Read: Owner can read all, employees can read their own
+      allow read: if isSignedIn()
+        && (
+          isOwner()
+          || (isEmployee() && belongsToCurrentUser(resource.data.employeeId))
+        );
+
+      // Write: Owner only (payroll generation is admin-only)
+      allow write: if isSignedIn() && isOwner();
+
+      // No deletes (audit trail)
+      allow delete: if false;
+    }
+
+    /* ==================== DENY ALL OTHERS ==================== */
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -12,9 +12,11 @@ import {
   addDoc,
   updateDoc,
   serverTimestamp,
-  orderBy
+  orderBy,
+  getDocs as getDocsRaw
 } from 'firebase/firestore';
 import { ToastService } from './toast.service';
+import { AuthService } from '../auth/auth.service';
 
 export interface Shift {
   id?: string;
@@ -31,9 +33,38 @@ export interface Shift {
 export class SchedulingService {
   private firestore = inject(Firestore);
   private toastService = inject(ToastService);
+  private authService = inject(AuthService);
 
   shifts = signal<Shift[]>([]);
   isLoading = signal(false);
+  error = signal<string | null>(null);
+
+  // Helper: Check if current user is owner
+  private isOwner(): boolean {
+    return this.authService.isOwner();
+  }
+
+  // Helper: Get current user's UID
+  private getCurrentUserId(): string | null {
+    return this.authService.currentUser()?.uid || null;
+  }
+
+  // Helper: Get employee ID for current user
+  private async getEmployeeIdForUser(userId: string): Promise<string | null> {
+    try {
+      const q = query(
+        collection(this.firestore, 'employees'),
+        where('user_id', '==', userId)
+      );
+      const snapshot = await getDocsRaw(q);
+      if (!snapshot.empty) {
+        return snapshot.docs[0].id;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
 
   // Get employee's shifts for a date range
   async getEmployeeShifts(employeeId: string, startDate: string, endDate: string): Promise<Shift[]> {
@@ -95,8 +126,17 @@ export class SchedulingService {
   // Create shift (owner only)
   async createShift(shift: Omit<Shift, 'id' | 'createdAt' | 'updatedAt'>): Promise<string | null> {
     this.isLoading.set(true);
+    this.error.set(null);
 
     try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can create shifts';
+        this.error.set(message);
+        this.toastService.error(message);
+        return null;
+      }
+
       const docRef = await addDoc(collection(this.firestore, 'shifts'), {
         ...shift,
         createdAt: serverTimestamp(),
@@ -107,6 +147,7 @@ export class SchedulingService {
       return docRef.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create shift';
+      this.error.set(message);
       this.toastService.error(message);
       return null;
     } finally {
@@ -117,8 +158,17 @@ export class SchedulingService {
   // Update shift (owner only)
   async updateShift(id: string, updates: Partial<Shift>): Promise<boolean> {
     this.isLoading.set(true);
+    this.error.set(null);
 
     try {
+      // Owner-only check
+      if (!this.isOwner()) {
+        const message = 'Only owners can update shifts';
+        this.error.set(message);
+        this.toastService.error(message);
+        return false;
+      }
+
       const { id: _, createdAt, ...cleanUpdates } = updates as any;
       await updateDoc(doc(this.firestore, 'shifts', id), {
         ...cleanUpdates,
@@ -129,6 +179,7 @@ export class SchedulingService {
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update shift';
+      this.error.set(message);
       this.toastService.error(message);
       return false;
     } finally {

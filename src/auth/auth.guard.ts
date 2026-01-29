@@ -1,7 +1,6 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
 import { AuthService } from './auth.service';
-import { OWNER_EMAIL } from '../core/constants';
 
 export const authGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
   const authService = inject(AuthService);
@@ -25,14 +24,6 @@ export const authGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
       router.navigate(['/employee/dashboard']);
     }
     return false;
-  }
-
-  // Owner check (only steventok7@gmail.com is owner)
-  if (requiredRole === 'owner') {
-    if (user.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
-      router.navigate(['/']);
-      return false;
-    }
   }
 
   return true;
