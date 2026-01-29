@@ -11,11 +11,13 @@ import {
   Admin,
   EmployeeHistory
 } from '../models';
+import { Payroll } from '../models/payroll.model';
 import { AuthService, AuthUser } from '../auth/auth.service';
 import { EmployeeService } from './employee.service';
 import { AttendanceService } from './attendance.service';
 import { SchedulingService } from './scheduling.service';
 import { RequestsService } from './requests.service';
+import { PayrollService } from './payroll.service';
 
 /** Response type for database status check */
 interface DatabaseStatus {
@@ -83,6 +85,7 @@ export class ApiService {
   private attendanceService = inject(AttendanceService);
   private schedulingService = inject(SchedulingService);
   private requestsService = inject(RequestsService);
+  private payrollService = inject(PayrollService);
 
   // --- Database Setup Check ---
 
@@ -570,8 +573,80 @@ export class ApiService {
 
   // --- Payroll ---
 
-  async generatePayroll(year: number, month: number): Promise<PayrollEntry[]> {
-    console.warn('ApiService.generatePayroll() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return [];
+  generatePayrollForEmployee(data: {
+    employeeId: string;
+    month: number;
+    year: number;
+    baseSalary: number;
+    workingDays?: number;
+    workingMinutesPerDay?: number;
+  }): Observable<{ success: boolean; payroll?: Payroll; error?: string }> {
+    if (!data.employeeId || data.month == null || data.year == null || data.baseSalary == null) {
+      return of({
+        success: false,
+        error: 'Employee ID, month, year, and base salary are required.'
+      });
+    }
+
+    return from((async () => {
+      try {
+        const payroll = await this.payrollService.generatePayrollForEmployee(
+          data.employeeId,
+          data.month,
+          data.year,
+          data.baseSalary,
+          data.workingDays || 20,
+          data.workingMinutesPerDay || 480
+        );
+
+        if (!payroll) {
+          return {
+            success: false,
+            error: this.payrollService.error() || 'Failed to generate payroll.'
+          };
+        }
+
+        return { success: true, payroll };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to generate payroll.';
+        console.error('Generate payroll failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
+  }
+
+  getAllPayroll(): Observable<Payroll[]> {
+    return from(this.payrollService.getAllPayroll()).pipe(
+      catchError((err) => {
+        console.error('Failed to fetch payroll:', err);
+        return of([]);
+      })
+    );
+  }
+
+  getEmployeePayroll(employeeId: string): Observable<Payroll[]> {
+    if (!employeeId) {
+      return of([]);
+    }
+
+    return from(this.payrollService.getEmployeePayroll(employeeId)).pipe(
+      catchError((err) => {
+        console.error('Failed to fetch employee payroll:', err);
+        return of([]);
+      })
+    );
+  }
+
+  getMonthPayroll(month: number, year: number): Observable<Payroll[]> {
+    if (month == null || year == null) {
+      return of([]);
+    }
+
+    return from(this.payrollService.getMonthPayroll(month, year)).pipe(
+      catchError((err) => {
+        console.error('Failed to fetch monthly payroll:', err);
+        return of([]);
+      })
+    );
   }
 }

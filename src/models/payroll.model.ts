@@ -1,26 +1,37 @@
-import { EmploymentType } from './employee.model';
-
-export interface PayrollEntry {
-  id?: string;
-  employeeId: string;
-  month: string; // YYYY-MM
-  baseSalary: number;
-  attendanceHours: number;
-  attendancePay: number;
-  approvedClaims: number;
-  overtimePay?: number;
-  deductions?: number;
-  netPay: number;
-  status: 'draft' | 'finalized';
-  generatedAt: Date;
+export interface PayrollAdjustment {
+  type: string;
+  amount: number;
+  description: string;
 }
 
-export interface PayrollCalculation {
+export interface Payroll {
+  id?: string;
   employeeId: string;
-  name: string;
-  employmentType: EmploymentType;
+  month: number;
+  year: number;
   baseSalary: number;
-  totalAttendanceHours: number;
-  approvedClaims: number;
-  netPay: number;
+  workingDays: number;
+  workingMinutesPerDay: number;
+  attendanceData: {
+    totalMinutesWorked: number;
+    totalDaysWorked: number;
+    expectedMinutes: number;
+  };
+  leaveData: {
+    approvedLeaveMinutes: number;
+    approvedLeaveDays: number;
+  };
+  calculations: {
+    payableMinutes: number;
+    expectedMinutes: number;
+    regularPayAmount: number;
+  };
+  adjustments: {
+    bonuses: PayrollAdjustment[];
+    deductions: PayrollAdjustment[];
+  };
+  totalAmount: number;
+  status: 'generated' | 'finalized';
+  createdAt?: Date;
+  updatedAt?: Date;
 }
