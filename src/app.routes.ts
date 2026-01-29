@@ -1,31 +1,83 @@
+
+
 import { Routes } from '@angular/router';
-import { LoginComponent } from './pages/login/login.component';
-import { RegisterEmployeeComponent } from './pages/register/register.component';
-import { EmployeeDashboardComponent } from './pages/employee/employee-dashboard.component';
-import { AdminDashboardComponent } from './pages/admin/admin-dashboard.component';
-import { EmployeeDetailComponent } from './pages/admin/views/employee-detail.component';
 import { authGuard } from './auth/auth.guard';
 
 export const routes: Routes = [
-  { path: '', component: LoginComponent },
-  { path: 'register', component: RegisterEmployeeComponent },
+  { path: '', redirectTo: '/login', pathMatch: 'full' },
+
+  // Auth Routes
   {
-    path: 'employee/dashboard',
-    component: EmployeeDashboardComponent,
-    canActivate: [authGuard],
-    data: { role: 'employee' }
+    path: 'login',
+    loadComponent: () => import('./pages/login/login.component').then(m => m.LoginComponent)
   },
   {
-    path: 'admin/dashboard',
-    component: AdminDashboardComponent,
-    canActivate: [authGuard],
-    data: { role: 'owner' }
+    path: 'register',
+    loadComponent: () => import('./pages/register/register.component').then(m => m.RegisterComponent)
   },
+
+  // Employee Routes
   {
-    path: 'admin/employee/:id',
-    component: EmployeeDetailComponent,
+    path: 'employee',
     canActivate: [authGuard],
-    data: { role: 'owner' }
+    data: { role: 'employee' },
+    children: [
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./pages/employee/dashboard.component').then(m => m.EmployeeDashboardComponent)
+      },
+      {
+        path: 'attendance',
+        loadComponent: () => import('./pages/employee/attendance.component').then(m => m.AttendanceComponent)
+      },
+      {
+        path: 'requests',
+        loadComponent: () => import('./pages/employee/requests.component').then(m => m.RequestsComponent)
+      },
+      {
+        path: 'payroll',
+        loadComponent: () => import('./pages/employee/payroll.component').then(m => m.PayrollComponent)
+      },
+      {
+        path: 'schedule',
+        loadComponent: () => import('./pages/employee/attendance.component').then(m => m.AttendanceComponent)
+      }
+    ]
   },
-  { path: '**', redirectTo: '' }
+
+  // Owner/Admin Routes
+  {
+    path: 'admin',
+    canActivate: [authGuard],
+    data: { role: 'owner' },
+    children: [
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./pages/admin/dashboard.component').then(m => m.AdminDashboardComponent)
+      },
+      {
+        path: 'employees',
+        loadComponent: () => import('./pages/admin/employees.component').then(m => m.EmployeesComponent)
+      },
+      {
+        path: 'employees/:id',
+        loadComponent: () => import('./pages/admin/employee-detail.component').then(m => m.EmployeeDetailComponent)
+      },
+      {
+        path: 'scheduling',
+        loadComponent: () => import('./pages/admin/scheduling.component').then(m => m.SchedulingComponent)
+      },
+      {
+        path: 'payroll',
+        loadComponent: () => import('./pages/admin/payroll.component').then(m => m.PayrollComponent)
+      },
+      {
+        path: 'requests',
+        loadComponent: () => import('./pages/admin/requests.component').then(m => m.RequestsComponent)
+      }
+    ]
+  },
+
+  // Catch all
+  { path: '**', redirectTo: '/login' }
 ];

@@ -1,286 +1,95 @@
-
-import { Component, OnInit, inject, signal, DestroyRef, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ApiService } from '../../services/api.service';
-import { ToastService } from '../../services/toast.service';
 import { AuthService } from '../../auth/auth.service';
-import { IconComponent } from '../../components/ui/icon.component';
-import { finalize } from 'rxjs';
+import { ToastService } from '../../services/toast.service';
+import { ButtonComponent } from '../../components/ui/button.component';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    RouterLink,
+    ButtonComponent
+  ],
   template: `
-    <div class="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 flex flex-col items-center justify-center p-5 relative">
-      
-      <!-- Connection Status - Subtle top indicator -->
-      <div class="absolute top-4 right-4 sm:top-6 sm:right-6 z-10">
-        @if (checkingDb()) {
-          <div class="flex items-center gap-2 px-3 py-1.5 bg-white/80 backdrop-blur rounded-full border border-zinc-200 shadow-sm">
-            <div class="w-2 h-2 bg-zinc-400 rounded-full animate-pulse"></div>
-            <span class="text-xs font-medium text-zinc-500">Connecting...</span>
+    <div class="min-h-screen bg-stone-50 flex items-center justify-center px-4">
+      <div class="w-full max-w-md">
+        <!-- Header -->
+        <div class="mb-8 text-center">
+          <h1 class="text-3xl font-black text-zinc-900 mb-2">SUKHA</h1>
+          <p class="text-sm text-zinc-600">Employee Hub</p>
+        </div>
+
+        <!-- Form -->
+        <form [formGroup]="form" (ngSubmit)="onSubmit()" class="bg-white rounded-2xl shadow-lg p-8 space-y-6">
+          <div>
+            <label class="block text-sm font-semibold text-zinc-900 mb-2">Email</label>
+            <input
+              type="email"
+              formControlName="email"
+              class="w-full px-4 py-3 border border-zinc-200 rounded-lg focus:outline-none focus:border-zinc-900"
+              placeholder="you@example.com"
+            />
           </div>
-        } @else if (dbStatus()?.ready) {
-          <div class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/80 backdrop-blur rounded-full border border-emerald-200 shadow-sm">
-            <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
-            <span class="text-xs font-semibold text-emerald-700">Online</span>
+
+          <div>
+            <label class="block text-sm font-semibold text-zinc-900 mb-2">Password</label>
+            <input
+              type="password"
+              formControlName="password"
+              class="w-full px-4 py-3 border border-zinc-200 rounded-lg focus:outline-none focus:border-zinc-900"
+              placeholder="••••••••"
+            />
           </div>
-        } @else {
-          <button (click)="checkDatabaseSetup()" class="flex items-center gap-2 px-3 py-1.5 bg-rose-50/80 hover:bg-rose-100 backdrop-blur rounded-full border border-rose-200 shadow-sm transition-colors">
-            <div class="w-2 h-2 bg-rose-500 rounded-full"></div>
-            <span class="text-xs font-semibold text-rose-700">Offline</span>
+
+          <button
+            type="submit"
+            [disabled]="form.invalid || authService.isLoading()"
+            class="w-full py-3 bg-zinc-900 text-white font-semibold rounded-lg hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {{ authService.isLoading() ? 'Signing in...' : 'Sign In' }}
           </button>
-        }
-      </div>
 
-      <div class="w-full max-w-sm">
-        <!-- Logo & Branding (Text Only) -->
-        <div class="text-center mb-10">
-          <h1 class="text-4xl font-bold text-zinc-900 tracking-tight">SUKHA</h1>
-          <p class="text-sm text-zinc-500 mt-2">Employee Management Hub</p>
-        </div>
-
-        <!-- Database Error Alert -->
-        @if (dbStatus() && !dbStatus()!.ready) {
-          <div class="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl">
-            <div class="flex gap-3">
-              <app-icon name="alert-triangle" class="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 class="text-sm font-semibold text-rose-800 mb-1">Connection Issue</h3>
-                <p class="text-xs text-rose-700 leading-relaxed">
-                  Unable to connect to database. Please check your configuration.
-                </p>
-                @if (dbStatus()?.errors && dbStatus()!.errors.length > 0) {
-                  <details class="mt-2">
-                    <summary class="text-xs text-rose-600 cursor-pointer hover:text-rose-800">View details</summary>
-                    <ul class="text-xs text-rose-600 list-disc list-inside mt-2 space-y-1 bg-rose-100/50 p-2 rounded">
-                      @for (error of dbStatus()?.errors; track $index) {
-                        <li>{{ error }}</li>
-                      }
-                    </ul>
-                  </details>
-                }
-              </div>
-            </div>
-          </div>
-        }
-
-        <!-- Login Form Card -->
-        <div class="bg-white rounded-2xl shadow-xl shadow-zinc-200/50 p-6 sm:p-8 border border-zinc-100">
-          <h2 class="text-xl font-semibold text-zinc-900 mb-6 text-center">Sign In</h2>
-          
-          <form (submit)="handleLogin($event)" class="space-y-5">
-            <!-- Email Input -->
-            <div>
-              <label class="block text-sm font-medium text-zinc-600 mb-2">Email Address</label>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <app-icon name="mail" class="w-5 h-5 text-zinc-400" />
-                </div>
-                <input
-                  type="email"
-                  [(ngModel)]="loginId"
-                  name="loginId"
-                  placeholder="Enter your email"
-                  class="w-full pl-12 pr-4 py-3.5 border border-zinc-200 bg-zinc-50 rounded-xl text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent focus:bg-white transition-all text-base"
-                  autocomplete="email"
-                />
-              </div>
-            </div>
-
-            <!-- Password Input -->
-            <div>
-              <label class="block text-sm font-medium text-zinc-600 mb-2">Password</label>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <app-icon name="lock" class="w-5 h-5 text-zinc-400" />
-                </div>
-                <input
-                  [type]="showPassword() ? 'text' : 'password'"
-                  [(ngModel)]="password"
-                  name="password"
-                  placeholder="Enter your password"
-                  class="w-full pl-12 pr-12 py-3.5 border border-zinc-200 bg-zinc-50 rounded-xl text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent focus:bg-white transition-all text-base"
-                  autocomplete="current-password"
-                />
-                <button
-                  type="button"
-                  (click)="togglePassword()"
-                  class="absolute inset-y-0 right-0 pr-4 flex items-center"
-                >
-                  @if (showPassword()) {
-                    <app-icon name="eye-off" class="w-5 h-5 text-zinc-400 hover:text-zinc-600 transition-colors" />
-                  } @else {
-                    <app-icon name="eye" class="w-5 h-5 text-zinc-400 hover:text-zinc-600 transition-colors" />
-                  }
-                </button>
-              </div>
-            </div>
-
-            <!-- Login Button -->
-            <button
-              type="submit"
-              [disabled]="loading()"
-              class="w-full py-4 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 active:scale-[0.98] transition-all shadow-lg shadow-zinc-900/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex justify-center items-center gap-2 min-h-[56px]"
-            >
-              @if (loading()) {
-                <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Signing in...</span>
-              } @else {
-                <span>Sign In</span>
-                <app-icon name="chevrons-right" class="w-5 h-5" />
-              }
-            </button>
-          </form>
-
-          <!-- Self Registration Link -->
-          <div class="mt-6 text-center">
-            <p class="text-sm text-zinc-500">
-              New here? 
-              <a routerLink="/register" class="text-zinc-900 font-bold hover:underline">Join as Team Member</a>
-            </p>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="mt-8 text-center">
-          <p class="text-xs text-zinc-400">© 2026 SUKHA. All rights reserved.</p>
-        </div>
+          <p class="text-center text-sm text-zinc-600">
+            Don't have an account?
+            <a routerLink="/register" class="text-zinc-900 font-semibold hover:underline">Sign up</a>
+          </p>
+        </form>
       </div>
     </div>
-  `
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class LoginComponent implements OnInit {
-  private api = inject(ApiService);
-  private toast = inject(ToastService);
+export class LoginComponent {
+  private fb = inject(FormBuilder);
+  authService = inject(AuthService);
+  private toastService = inject(ToastService);
   private router = inject(Router);
-  private authService = inject(AuthService);
-  private destroyRef = inject(DestroyRef);
 
-  loginId = '';
-  password = '';
-  showPassword = signal(false);
-  loading = signal(false);
-  dbStatus = signal<{ ready: boolean; errors?: string[] } | null>(null);
-  checkingDb = signal(true);
+  form = this.fb.group({
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', Validators.required]
+  });
 
-  ngOnInit(): void {
-    const user = this.authService.currentUser();
-    if (user) {
-      if (user.role === 'owner') {
-        this.router.navigate(['/admin/dashboard']);
-      } else {
-        this.router.navigate(['/employee/dashboard']);
-      }
-      return;
-    }
-    this.checkDatabaseSetup();
-  }
+  async onSubmit(): Promise<void> {
+    if (this.form.invalid) return;
 
-  togglePassword(): void {
-    this.showPassword.update(v => !v);
-  }
-
-  checkDatabaseSetup(): void {
-    this.checkingDb.set(true);
-    this.api.checkDatabaseSetup().pipe(
-      takeUntilDestroyed(this.destroyRef),
-      finalize(() => this.checkingDb.set(false))
-    ).subscribe({
-      next: (status) => {
-        this.dbStatus.set(status);
-        if (!status.ready) {
-          console.warn('Supabase Check Failed:', status.errors);
-        }
-      },
-      error: (err) => {
-        console.error('Network Error checking DB:', err);
-        this.dbStatus.set({ ready: false, errors: ['Network error. Check console for details.'] });
-      }
-    });
-  }
-
-
-  testConnection(): void {
-    this.toast.info('Testing connection to Supabase...');
-    this.api.checkDatabaseSetup().pipe(
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe({
-      next: (status) => {
-        if (status.ready) {
-          this.toast.success('Connection Successful! Tables found.');
-        } else {
-          this.toast.error(status.errors?.[0] || 'Connection Failed');
-        }
-      },
-      error: () => {
-        this.toast.error('Connection test failed. Please try again.');
-      }
-    });
-  }
-
-  handleLogin(e: Event): void {
-    e.preventDefault();
-
-    const trimmedLoginId = this.loginId.trim();
-    const trimmedPassword = this.password.trim();
-
-    if (!trimmedLoginId || !trimmedPassword) {
-      this.toast.error('Please enter both credentials');
-      return;
-    }
-
-    if (this.dbStatus() && !this.dbStatus()!.ready) {
-      this.toast.error('Database connection failed. Check your config.');
-      return;
-    }
-
-    this.loading.set(true);
-
-    // Use the new simplified login method
-    this.performLogin(trimmedLoginId, trimmedPassword);
-  }
-
-  private async performLogin(email: string, password: string): Promise<void> {
     try {
-      // One method does everything: auth + profile fetch + state update
-      const result = await this.authService.loginWithPassword(email, password);
+      const { email, password } = this.form.value;
+      await this.authService.login(email!, password!);
+      this.toastService.success('Logged in successfully');
 
-      if (!result.success) {
-        this.loading.set(false);
-        this.toast.error(result.error || 'Invalid credentials');
-        return;
-      }
-
-      // Success! Get the user and navigate
-      const user = this.authService.currentUser();
-
-      if (!user) {
-        this.loading.set(false);
-        this.toast.error('Login succeeded but user data not found');
-        return;
-      }
-
-      this.loading.set(false);
-
-      // Show welcome message and navigate
-      if (user.role === 'owner') {
-        this.toast.success('Welcome back, Owner!');
+      if (this.authService.isOwner()) {
         this.router.navigate(['/admin/dashboard']);
       } else {
-        this.toast.success(`Welcome back, ${user.name}!`);
         this.router.navigate(['/employee/dashboard']);
       }
-
-    } catch (error) {
-      this.loading.set(false);
-      console.error('Login error:', error);
-      this.toast.error('An unexpected error occurred');
+    } catch (err) {
+      this.toastService.error('Login failed');
     }
   }
 }

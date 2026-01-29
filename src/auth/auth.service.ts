@@ -1,354 +1,208 @@
-import { Injectable, signal, OnDestroy } from '@angular/core';
+import { Injectable, signal, DestroyRef, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { supabase } from '../supabase.config';
-import type { Session } from '@supabase/supabase-js';
+import {
+  Auth,
+  signInWithEmailAndPassword,
+  signOut,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  AuthError
+} from 'firebase/auth';
+import {
+  Firestore,
+  doc,
+  getDoc,
+  setDoc,
+  query,
+  where,
+  getDocs,
+  collection,
+  updateDoc
+} from 'firebase/firestore';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { getAuthInstance, getFirestoreInstance } from '../core/firebase.config';
+import { OWNER_EMAIL } from '../core/constants';
 
 export interface AuthUser {
-  id?: string;
+  uid: string;
+  email: string;
   name: string;
-  email?: string;
-  username?: string;
   role: 'owner' | 'employee';
-  job_title?: string;
-  status?: string;
+  photoURL?: string;
+  createdAt: Date;
 }
-
-/** Session metadata for timeout management */
-interface SessionData {
-  user: AuthUser;
-  expiresAt: number;
-}
-
-// Session timeout duration (8 hours in milliseconds)
-const SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
-const SESSION_STORAGE_KEY = 'sukha_session';
 
 @Injectable({
   providedIn: 'root'
 })
-export class AuthService implements OnDestroy {
+export class AuthService {
+  private auth: Auth = getAuthInstance();
+  private firestore: Firestore = getFirestoreInstance();
+  private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
 
   currentUser = signal<AuthUser | null>(null);
+  isLoading = signal(true);
+  error = signal<string | null>(null);
 
-  private sessionCheckInterval: ReturnType<typeof setInterval> | null = null;
-  private supabaseSession: Session | null = null;
-
-  constructor(private router: Router) {
-    this.initializeSession();
-    this.startSessionCheck();
-    this.setupAuthListener();
+  constructor() {
+    this.initializeAuth();
   }
 
-  ngOnDestroy(): void {
-    this.stopSessionCheck();
-  }
-
-  /**
-   * Initialize session from Supabase (single source of truth)
-   * This runs on app start and ensures localStorage never overrides Supabase
-   */
-  private async initializeSession(): Promise<void> {
-    try {
-      // Get current Supabase session
-      const { data: { session }, error } = await supabase.auth.getSession();
-
-      if (error) {
-        console.error('Failed to get Supabase session:', error);
-        this.clearSession();
-        return;
-      }
-
-      if (!session) {
-        // No Supabase session - clear any localStorage remnants
-        this.clearSession();
-        return;
-      }
-
-      // Valid Supabase session exists - fetch profile and hydrate
-      this.supabaseSession = session;
-      await this.hydrateUserFromSupabase(session.user.id);
-
-    } catch (error) {
-      console.error('Session initialization failed:', error);
-      this.clearSession();
-    }
-  }
-
-  /**
-   * Fetch user profile from Supabase and set currentUser
-   */
-  private async hydrateUserFromSupabase(userId: string): Promise<void> {
-    try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error || !profile) {
-        console.error('Failed to fetch profile:', error);
-        this.clearSession();
-        return;
-      }
-
-      const authUser: AuthUser = {
-        id: profile.id,
-        name: profile.name || profile.email?.split('@')[0] || 'Unknown',
-        email: profile.email,
-        role: profile.role === 'owner' ? 'owner' : 'employee',
-        job_title: profile.job_title,
-        status: profile.status
-      };
-
-      this.currentUser.set(authUser);
-      this.saveSession(authUser);
-
-    } catch (error) {
-      console.error('Failed to hydrate user from Supabase:', error);
-      this.clearSession();
-    }
-  }
-
-  /**
-   * Listen to Supabase auth state changes
-   */
-  private setupAuthListener(): void {
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event);
-
-      if (event === 'SIGNED_OUT' || !session) {
-        this.clearSession();
+  private initializeAuth(): void {
+    onAuthStateChanged(this.auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userDoc = await getDoc(doc(this.firestore, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            this.currentUser.set({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: userData['name'] || '',
+              role: userData['role'] || 'employee',
+              photoURL: firebaseUser.photoURL || undefined,
+              createdAt: userData['createdAt']?.toDate?.() || new Date()
+            });
+          }
+        } catch (e) {
+          console.error('Error fetching user data:', e);
+          this.error.set('Failed to load user data');
+        }
+      } else {
         this.currentUser.set(null);
-        this.supabaseSession = null;
-        return;
       }
-
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        this.supabaseSession = session;
-        await this.hydrateUserFromSupabase(session.user.id);
-      }
+      this.isLoading.set(false);
     });
   }
 
-  /**
-   * Get current Supabase session (for guards and API calls)
-   */
-  async getSupabaseSession(): Promise<Session | null> {
-    const { data: { session } } = await supabase.auth.getSession();
-    this.supabaseSession = session;
-    return session;
-  }
-
-  private loadUserFromStorage(): void {
-    // This is now only used as a fallback for quick UI hydration
-    // Supabase session is the source of truth
+  async login(email: string, password: string): Promise<AuthUser> {
+    this.isLoading.set(true);
+    this.error.set(null);
     try {
-      const sessionJson = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionJson) {
-        return;
+      const result = await signInWithEmailAndPassword(this.auth, email, password);
+      const userDoc = await getDoc(doc(this.firestore, 'users', result.user.uid));
+
+      if (!userDoc.exists()) {
+        throw new Error('User profile not found');
       }
 
-      const session: SessionData = JSON.parse(sessionJson);
-
-      // Check if session has expired
-      if (Date.now() > session.expiresAt) {
-        this.clearSession();
-        return;
-      }
-
-      // Validate user object structure
-      if (this.isValidUser(session.user)) {
-        // Only set if we don't have a user yet (prevents override)
-        if (!this.currentUser()) {
-          this.currentUser.set(session.user);
-        }
-      } else {
-        this.clearSession();
-      }
-    } catch (error) {
-      console.error('Failed to load user from storage:', error);
-      this.clearSession();
-    }
-  }
-
-  /** Validate that user object has required properties */
-  private isValidUser(user: unknown): user is AuthUser {
-    if (!user || typeof user !== 'object') return false;
-    const u = user as Record<string, unknown>;
-    return (
-      typeof u['name'] === 'string' &&
-      u['name'].length > 0 &&
-      (u['role'] === 'owner' || u['role'] === 'employee')
-    );
-  }
-
-  /** Save session with expiration timestamp */
-  private saveSession(user: AuthUser): void {
-    const session: SessionData = {
-      user,
-      expiresAt: Date.now() + SESSION_TIMEOUT_MS
-    };
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-  }
-
-  /** Clear session from storage */
-  private clearSession(): void {
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-    localStorage.removeItem('admin'); // Clean up legacy keys
-    localStorage.removeItem('employee');
-  }
-
-  /** Start periodic session validation check */
-  private startSessionCheck(): void {
-    // Check session validity every 5 minutes
-    this.sessionCheckInterval = setInterval(() => {
-      this.validateSession();
-    }, 5 * 60 * 1000);
-  }
-
-  private stopSessionCheck(): void {
-    if (this.sessionCheckInterval) {
-      clearInterval(this.sessionCheckInterval);
-      this.sessionCheckInterval = null;
-    }
-  }
-
-  /** Validate current session and logout if expired */
-  private async validateSession(): Promise<void> {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        // No Supabase session - logout
-        if (this.currentUser()) {
-          this.logout();
-        }
-        return;
-      }
-
-      // Supabase session exists - verify localStorage matches
-      const sessionJson = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionJson) {
-        // localStorage cleared but Supabase session exists - re-hydrate
-        await this.hydrateUserFromSupabase(session.user.id);
-        return;
-      }
-
-      const localSession: SessionData = JSON.parse(sessionJson);
-      if (Date.now() > localSession.expiresAt) {
-        this.logout();
-      }
-    } catch {
-      this.logout();
-    }
-  }
-
-  /** Extend session expiration (call on user activity) */
-  extendSession(): void {
-    const user = this.currentUser();
-    if (user) {
-      this.saveSession(user);
-    }
-  }
-
-  isLoggedIn(): boolean {
-    return !!this.currentUser();
-  }
-
-  hasRole(role: 'owner' | 'employee'): boolean {
-    return this.currentUser()?.role === role;
-  }
-
-  /**
-   * Authenticate user with email and password
-   * This is the main login method - handles Supabase auth + local state in one call
-   * 
-   * @param email - User's email address
-   * @param password - User's password
-   * @returns Promise with success status and optional error message
-   */
-  async loginWithPassword(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      // 1. Authenticate with Supabase
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error || !data.session) {
-        console.error('Supabase auth failed:', error);
-        return {
-          success: false,
-          error: error?.message || 'Invalid credentials'
-        };
-      }
-
-      // 2. Store Supabase session
-      this.supabaseSession = data.session;
-
-      // 3. Fetch and hydrate user profile from database
-      await this.hydrateUserFromSupabase(data.user.id);
-
-      // 4. Verify hydration succeeded
-      if (!this.currentUser()) {
-        return {
-          success: false,
-          error: 'Failed to load user profile'
-        };
-      }
-
-      return { success: true };
-
-    } catch (err) {
-      console.error('Login error:', err);
-      return {
-        success: false,
-        error: 'An unexpected error occurred'
+      const userData = userDoc.data();
+      const user: AuthUser = {
+        uid: result.user.uid,
+        email: result.user.email || '',
+        name: userData['name'] || '',
+        role: userData['role'] || 'employee',
+        photoURL: result.user.photoURL || undefined,
+        createdAt: userData['createdAt']?.toDate?.() || new Date()
       };
+
+      this.currentUser.set(user);
+      return user;
+    } catch (e: any) {
+      const errorMessage = this.parseAuthError(e);
+      this.error.set(errorMessage);
+      throw e;
+    } finally {
+      this.isLoading.set(false);
     }
   }
 
-  /**
-   * @deprecated Use loginWithPassword(email, password) instead
-   * 
-   * This method is confusing because it doesn't actually authenticate.
-   * It only sets local state after you've already authenticated elsewhere.
-   * Kept for backward compatibility only.
-   */
-  login(user: AuthUser | Record<string, unknown> | { [key: string]: unknown }, role: 'owner' | 'employee'): void {
-    console.warn('⚠️  AuthService.login() is deprecated. Use loginWithPassword(email, password) instead.');
-    if (!user || typeof user !== 'object') {
-      console.error('Invalid user object provided to login');
-      return;
+  async signup(email: string, password: string, name: string): Promise<AuthUser> {
+    this.isLoading.set(true);
+    this.error.set(null);
+    try {
+      const isOwner = email.toLowerCase() === OWNER_EMAIL.toLowerCase();
+
+      const result = await createUserWithEmailAndPassword(this.auth, email, password);
+
+      const userRef = doc(this.firestore, 'users', result.user.uid);
+      const userData: any = {
+        email,
+        name,
+        role: isOwner ? 'owner' : 'employee',
+        createdAt: new Date(),
+        photoURL: null
+      };
+
+      await setDoc(userRef, userData);
+
+      if (!isOwner) {
+        const employeeQuery = query(
+          collection(this.firestore, 'employees'),
+          where('email', '==', email)
+        );
+        const employeeDocs = await getDocs(employeeQuery);
+
+        if (!employeeDocs.empty) {
+          const employeeDoc = employeeDocs.docs[0];
+          await updateDoc(doc(this.firestore, 'employees', employeeDoc.id), {
+            userId: result.user.uid,
+            updatedAt: new Date()
+          });
+        }
+      }
+
+      const user: AuthUser = {
+        uid: result.user.uid,
+        email,
+        name,
+        role: isOwner ? 'owner' : 'employee',
+        photoURL: null,
+        createdAt: new Date()
+      };
+
+      this.currentUser.set(user);
+      return user;
+    } catch (e: any) {
+      const errorMessage = this.parseAuthError(e);
+      this.error.set(errorMessage);
+      throw e;
+    } finally {
+      this.isLoading.set(false);
     }
-
-    // Cast to Record for safe property access
-    const userData = user as Record<string, unknown>;
-
-    const authUser: AuthUser = {
-      id: (userData['id'] as string) || undefined,
-      name: (userData['name'] as string) || 'Unknown User',
-      email: (userData['email'] as string) || undefined,
-      username: (userData['username'] as string) || undefined,
-      role,
-      job_title: (userData['job_title'] as string) || undefined,
-      status: (userData['status'] as string) || undefined
-    };
-
-    this.saveSession(authUser);
-    this.currentUser.set(authUser);
   }
 
   async logout(): Promise<void> {
-    // Sign out from Supabase
-    await supabase.auth.signOut();
+    this.isLoading.set(true);
+    this.error.set(null);
+    try {
+      await signOut(this.auth);
+      this.currentUser.set(null);
+      this.router.navigate(['/']);
+    } catch (e: any) {
+      const errorMessage = this.parseAuthError(e);
+      this.error.set(errorMessage);
+      throw e;
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
 
-    // Clear local state
-    this.clearSession();
-    this.currentUser.set(null);
-    this.supabaseSession = null;
+  isOwner(): boolean {
+    return this.currentUser()?.role === 'owner';
+  }
 
-    // Navigate to login
-    this.router.navigate(['/']);
+  isEmployee(): boolean {
+    return this.currentUser()?.role === 'employee';
+  }
+
+  isAuthenticated(): boolean {
+    return this.currentUser() !== null;
+  }
+
+  private parseAuthError(error: AuthError): string {
+    const errorMap: Record<string, string> = {
+      'auth/invalid-email': 'Invalid email address',
+      'auth/user-disabled': 'User account is disabled',
+      'auth/user-not-found': 'User not found',
+      'auth/wrong-password': 'Incorrect password',
+      'auth/email-already-in-use': 'Email already in use',
+      'auth/weak-password': 'Password is too weak',
+      'auth/operation-not-allowed': 'Operation not allowed',
+      'auth/too-many-requests': 'Too many login attempts, please try again later'
+    };
+
+    return errorMap[error.code] || error.message || 'Authentication failed';
   }
 }

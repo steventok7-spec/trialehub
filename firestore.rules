@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users collection - authenticated users can read their own profile
+    match /users/{uid} {
+      allow read: if request.auth.uid == uid;
+      allow create: if request.auth.uid == uid &&
+                      request.resource.data.email == request.auth.token.email;
+      allow update: if request.auth.uid == uid;
+      allow delete: if false; // Never allow user deletion
+    }
+
+    // Employees collection
+    match /employees/{employeeId} {
+      // Owners can read/write all employees
+      allow read, write: if hasRole('owner');
+
+      // Employees can read their own data
+      allow read: if hasRole('employee') &&
+                     isEmployeeDataOwned(employeeId);
+
+      // Employees cannot write their own data (only admins)
+      allow write: if false;
+
+      // Helper function to check employee ownership
+      function isEmployeeDataOwned(employeeId) {
+        let currentUserEmail = request.auth.token.email;
+        return get(/databases/$(database)/documents/employees/$(employeeId)).data.email == currentUserEmail;
+      }
+    }
+
+    // Attendance collection
+    match /attendance/{attendanceId} {
+      // Owners can read all attendance
+      allow read: if hasRole('owner');
+
+      // Employees can read/write their own attendance
+      allow read: if hasRole('employee') &&
+                     resource.data.employeeId == getCurrentUserId();
+      allow create: if hasRole('employee') &&
+                       request.resource.data.employeeId == getCurrentUserId();
+      allow update: if hasRole('employee') &&
+                       resource.data.employeeId == getCurrentUserId();
+      allow delete: if hasRole('owner');
+
+      // Owners can update any attendance
+      allow update: if hasRole('owner');
+    }
+
+    // Requests collection
+    match /requests/{requestId} {
+      // Owners can read all requests
+      allow read: if hasRole('owner');
+
+      // Employees can read/write their own requests
+      allow read: if hasRole('employee') &&
+                     resource.data.employeeId == getCurrentUserId();
+      allow create: if hasRole('employee') &&
+                       request.resource.data.employeeId == getCurrentUserId();
+
+      // Employees cannot modify requests (only owners can approve/reject)
+      allow update: if hasRole('owner');
+      allow delete: if hasRole('owner');
+    }
+
+    // Shifts collection
+    match /shifts/{shiftId} {
+      // Owners can read/write all shifts
+      allow read, write: if hasRole('owner');
+
+      // Employees can read their own shifts
+      allow read: if hasRole('employee') &&
+                     resource.data.employeeId == getCurrentUserId();
+    }
+
+    // Payroll collection
+    match /payroll/{payrollId} {
+      // Owners can read/write all payroll
+      allow read, write: if hasRole('owner');
+
+      // Employees can read their own payroll
+      allow read: if hasRole('employee') &&
+                     resource.data.employeeId == getCurrentUserId();
+    }
+
+    // Helper functions
+    function hasRole(role) {
+      return request.auth != null &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function getCurrentUserId() {
+      return request.auth.uid;
+    }
+
+    // Prevent direct write to root
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

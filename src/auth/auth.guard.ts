@@ -1,66 +1,39 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
 import { AuthService } from './auth.service';
-import { supabase } from '../supabase.config';
+import { OWNER_EMAIL } from '../core/constants';
 
-export const authGuard: CanActivateFn = async (route: ActivatedRouteSnapshot) => {
+export const authGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
   const authService = inject(AuthService);
   const router = inject(Router);
-  const requiredRole = route.data['role'] as 'owner' | 'employee';
+  const requiredRole = route.data['role'] as 'owner' | 'employee' | undefined;
 
-  try {
-    // 1. Check Supabase session (single source of truth)
-    const session = await authService.getSupabaseSession();
+  const user = authService.currentUser();
 
-    if (!session) {
-      console.warn('Auth guard: No Supabase session found');
-      router.navigate(['/']);
-      return false;
-    }
-
-    // 2. Fetch user profile from database to validate role
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('role, email')
-      .eq('id', session.user.id)
-      .single();
-
-    if (error || !profile) {
-      console.error('Auth guard: Failed to fetch profile', error);
-      router.navigate(['/']);
-      return false;
-    }
-
-    // 3. Validate role matches required role
-    const userRole = profile.role === 'owner' ? 'owner' : 'employee';
-
-    if (userRole !== requiredRole) {
-      console.warn(`Auth guard: Role mismatch. Required: ${requiredRole}, User: ${userRole}`);
-
-      // Redirect to appropriate dashboard
-      if (userRole === 'owner') {
-        router.navigate(['/admin/dashboard']);
-      } else {
-        router.navigate(['/employee/dashboard']);
-      }
-      return false;
-    }
-
-    // 4. Additional owner validation (single owner enforcement)
-    if (requiredRole === 'owner') {
-      if (profile.email !== 'steventok@sukhapku.com') {
-        console.error('Auth guard: Owner access denied - not authorized owner email');
-        router.navigate(['/']);
-        return false;
-      }
-    }
-
-    // All checks passed
-    return true;
-
-  } catch (error) {
-    console.error('Auth guard error:', error);
+  // Not authenticated
+  if (!user) {
     router.navigate(['/']);
     return false;
   }
+
+  // Role check
+  if (requiredRole && user.role !== requiredRole) {
+    // Redirect to appropriate dashboard
+    if (user.role === 'owner') {
+      router.navigate(['/owner/dashboard']);
+    } else {
+      router.navigate(['/employee/dashboard']);
+    }
+    return false;
+  }
+
+  // Owner check (only steventok7@gmail.com is owner)
+  if (requiredRole === 'owner') {
+    if (user.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()) {
+      router.navigate(['/']);
+      return false;
+    }
+  }
+
+  return true;
 };

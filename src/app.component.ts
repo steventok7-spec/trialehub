@@ -1,3 +1,5 @@
+
+
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ToastComponent } from './components/ui/toast.component';
@@ -28,4 +30,4 @@ import { ToastComponent } from './components/ui/toast.component';
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class AppComponent { }
+export class AppComponent {}
