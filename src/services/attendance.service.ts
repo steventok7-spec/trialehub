@@ -20,14 +20,98 @@ import {
 } from 'firebase/firestore';
 import { Attendance } from '../models';
 import { ToastService } from './toast.service';
+import { AuthService } from '../auth/auth.service';
+import { EmployeeService } from './employee.service';
 
 @Injectable({ providedIn: 'root' })
 export class AttendanceService {
   private firestore = inject(Firestore);
   private toastService = inject(ToastService);
+  private authService = inject(AuthService);
+  private employeeService = inject(EmployeeService);
 
   attendance = signal<Attendance[]>([]);
   isLoading = signal(false);
+  error = signal<string | null>(null);
+
+  // Helper: Check if current user is owner
+  private isOwner(): boolean {
+    return this.authService.isOwner();
+  }
+
+  // Helper: Get current user's UID
+  private getCurrentUserId(): string | null {
+    return this.authService.currentUser()?.uid || null;
+  }
+
+  // Helper: Get employee ID for current user
+  private async getEmployeeIdForUser(userId: string): Promise<string | null> {
+    try {
+      // Get employee record that matches this user's ID
+      const q = query(
+        collection(this.firestore, 'employees'),
+        where('user_id', '==', userId)
+      );
+      const snapshot = await getDocsRaw(q);
+      if (!snapshot.empty) {
+        return snapshot.docs[0].id;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Get all attendance records (with access control)
+  async getAllAttendance(daysBack: number = 30): Promise<Attendance[]> {
+    this.isLoading.set(true);
+    this.error.set(null);
+
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+
+      // If owner, get all attendance records
+      if (this.isOwner()) {
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysBack);
+        const startDateStr = startDate.toISOString().split('T')[0];
+
+        const q = query(
+          collection(this.firestore, 'attendance'),
+          where('date', '>=', startDateStr),
+          orderBy('date', 'desc'),
+          limit(daysBack * 50) // Rough estimate
+        );
+
+        const snapshot = await getDocsRaw(q);
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Attendance));
+
+        this.attendance.set(data);
+        return data;
+      }
+
+      // If employee, get only their own attendance
+      const employeeId = await this.getEmployeeIdForUser(userId);
+      if (!employeeId) {
+        throw new Error('Employee record not found for this user');
+      }
+
+      return this.getEmployeeAttendance(employeeId, daysBack);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch attendance';
+      this.error.set(message);
+      this.toastService.error(message);
+      return [];
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
 
   // Check in
   async checkIn(employeeId: string, latitude?: number, longitude?: number): Promise<boolean> {

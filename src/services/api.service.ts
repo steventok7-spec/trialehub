@@ -13,6 +13,8 @@ import {
 } from '../models';
 import { AuthService, AuthUser } from '../auth/auth.service';
 import { EmployeeService } from './employee.service';
+import { AttendanceService } from './attendance.service';
+import { SchedulingService } from './scheduling.service';
 
 /** Response type for database status check */
 interface DatabaseStatus {
@@ -77,6 +79,8 @@ interface SupabaseAttendance {
 export class ApiService {
   private authService = inject(AuthService);
   private employeeService = inject(EmployeeService);
+  private attendanceService = inject(AttendanceService);
+  private schedulingService = inject(SchedulingService);
 
   // --- Database Setup Check ---
 
@@ -282,8 +286,43 @@ export class ApiService {
     endTime?: string;
     notes?: string;
   }): Observable<OperationResponse> {
-    console.warn('ApiService.updateSchedule() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!data.employeeId || !data.date || !data.shift) {
+      return of({ success: false, error: 'Employee ID, date, and shift are required.' });
+    }
+
+    return from((async () => {
+      try {
+        const shiftId = await this.schedulingService.createShift({
+          employeeId: data.employeeId,
+          date: data.date,
+          startTime: data.startTime || '09:00',
+          endTime: data.endTime || '17:00',
+          type: this.mapShiftType(data.shift)
+        });
+
+        if (!shiftId) {
+          return {
+            success: false,
+            error: this.schedulingService.error() || 'Failed to create schedule.'
+          };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to update schedule.';
+        console.error('Update schedule failed:', err);
+        return { success: false, error: errorMessage };
+      }
+    })());
+  }
+
+  private mapShiftType(shift: 'morning' | 'afternoon' | 'full_day'): 'morning' | 'afternoon' | 'evening' | 'full' {
+    const mapping = {
+      'morning': 'morning' as const,
+      'afternoon': 'afternoon' as const,
+      'full_day': 'full' as const
+    };
+    return mapping[shift] || 'full';
   }
 
   getEmployeeDetails(id: string): Observable<{
@@ -304,23 +343,95 @@ export class ApiService {
   // --- Attendance ---
 
   checkIn(data: { employeeId: string; latitude: number; longitude: number }): Observable<OperationResponse> {
-    console.warn('ApiService.checkIn() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!data.employeeId) {
+      return of({ success: false, error: 'Employee ID is required.' });
+    }
+
+    return from(this.attendanceService.checkIn(data.employeeId, data.latitude, data.longitude)).pipe(
+      map((success) => ({
+        success,
+        error: success ? undefined : this.attendanceService.error() || 'Check-in failed.'
+      })),
+      catchError((err) => {
+        const errorMessage = err instanceof Error ? err.message : 'Check-in failed.';
+        console.error('Check-in failed:', err);
+        return of({ success: false, error: errorMessage });
+      })
+    );
   }
 
   checkOut(data: { employeeId: string }): Observable<OperationResponse & { hours?: string }> {
-    console.warn('ApiService.checkOut() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ success: false, error: 'Backend not yet implemented.' });
+    if (!data.employeeId) {
+      return of({ success: false, error: 'Employee ID is required.' });
+    }
+
+    return from(this.attendanceService.checkOut(data.employeeId)).pipe(
+      map((success) => ({
+        success,
+        error: success ? undefined : this.attendanceService.error() || 'Check-out failed.'
+      })),
+      catchError((err) => {
+        const errorMessage = err instanceof Error ? err.message : 'Check-out failed.';
+        console.error('Check-out failed:', err);
+        return of({ success: false, error: errorMessage });
+      })
+    );
   }
 
   getAllAttendance(): Observable<Array<SupabaseAttendance & { employeeName: string; hours: string }>> {
-    console.warn('ApiService.getAllAttendance() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of([]);
+    return from(this.attendanceService.getAllAttendance()).pipe(
+      switchMap(async (records) => {
+        // Enhance with employee names
+        const enhanced = await Promise.all(
+          records.map(async (record) => {
+            const empId = record.employee_id;
+            try {
+              const emp = await this.employeeService.getEmployeeById(empId);
+              return {
+                ...record,
+                employeeName: emp?.name || 'Unknown',
+                hours: record.total_minutes ? (record.total_minutes / 60).toFixed(1) : '-'
+              };
+            } catch {
+              return {
+                ...record,
+                employeeName: 'Unknown',
+                hours: record.total_minutes ? (record.total_minutes / 60).toFixed(1) : '-'
+              };
+            }
+          })
+        );
+        return enhanced;
+      }),
+      catchError((err) => {
+        console.error('Failed to fetch attendance:', err);
+        return of([]);
+      })
+    );
   }
 
   getEmployeeHistory(employeeId: string): Observable<EmployeeHistory> {
-    console.warn('ApiService.getEmployeeHistory() is stubbed - Supabase removed, awaiting Firebase implementation');
-    return of({ attendance: [], summary: { leaveDaysAvailable: 0, sickDaysTaken: 0, pendingClaims: 0 } });
+    if (!employeeId) {
+      return of({ attendance: [], summary: { leaveDaysAvailable: 0, sickDaysTaken: 0, pendingClaims: 0 } });
+    }
+
+    return from(this.attendanceService.getEmployeeAttendance(employeeId)).pipe(
+      map((records) => ({
+        attendance: records.map(r => ({
+          ...r,
+          hours: r.total_minutes ? (r.total_minutes / 60).toFixed(1) : '-'
+        })),
+        summary: {
+          leaveDaysAvailable: 12, // Placeholder
+          sickDaysTaken: 0,        // Placeholder
+          pendingClaims: 0         // Placeholder
+        }
+      })),
+      catchError((err) => {
+        console.error('Failed to fetch employee history:', err);
+        return of({ attendance: [], summary: { leaveDaysAvailable: 0, sickDaysTaken: 0, pendingClaims: 0 } });
+      })
+    );
   }
 
   // --- Requests ---
