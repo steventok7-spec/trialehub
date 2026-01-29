@@ -1,8 +1,7 @@
 
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ApiService } from './api.service';
-import { AuthService } from '../auth/auth.service'; // Need Auth for user_id
-import { supabase } from '../supabase.config';
+import { AuthService } from '../auth/auth.service';
 
 export interface AppNotification {
     id: string;
@@ -30,7 +29,7 @@ export class NotificationService {
     // Public Signals
     notifications = computed(() => this.notificationsSignal().map(n => ({
         ...n,
-        timestamp: n.created_at, // Map DB field to UI
+        timestamp: n.created_at,
         read: n.is_read
     })));
 
@@ -52,36 +51,25 @@ export class NotificationService {
             return;
         }
 
-        await this.loadNotifications();
-        this.subscribeToNotifications();
-        this.checkForBirthdays();
+        // PHASE 0: Stubbed out - Firebase implementation pending
+        console.warn('NotificationService.initializeForUser() is stubbed - Supabase removed, awaiting Firebase implementation');
     }
 
     async loadNotifications() {
         const user = this.auth.currentUser();
         if (!user) return;
 
-        const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(50);
-
-        if (data) {
-            this.notificationsSignal.set(data as AppNotification[]);
-        }
+        // PHASE 0: Stubbed out - Firebase implementation pending
+        console.warn('NotificationService.loadNotifications() is stubbed - Supabase removed, awaiting Firebase implementation');
+        this.notificationsSignal.set([]);
     }
 
     subscribeToNotifications() {
         const user = this.auth.currentUser();
         if (!user) return;
 
-        supabase.channel('public:notifications')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => {
-                this.loadNotifications(); // Reload on any change
-            })
-            .subscribe();
+        // PHASE 0: Stubbed out - Firebase implementation pending
+        console.warn('NotificationService.subscribeToNotifications() is stubbed - Supabase removed, awaiting Firebase implementation');
     }
 
     async markAsRead(id: string) {
@@ -90,8 +78,8 @@ export class NotificationService {
             current.map(n => n.id === id ? { ...n, is_read: true } : n)
         );
 
-        // DB Update
-        await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+        // PHASE 0: DB update stubbed out
+        console.warn('NotificationService.markAsRead() is stubbed - Supabase removed, awaiting Firebase implementation');
     }
 
     async markAllAsRead() {
@@ -103,56 +91,12 @@ export class NotificationService {
             current.map(n => ({ ...n, is_read: true }))
         );
 
-        // DB Update
-        await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
+        // PHASE 0: DB update stubbed out
+        console.warn('NotificationService.markAllAsRead() is stubbed - Supabase removed, awaiting Firebase implementation');
     }
 
     private checkForBirthdays() {
-        // Client-side simulation of Cron Job
-        // Only runs if user is logged in
-        const user = this.auth.currentUser();
-        if (!user) return;
-
-        this.api.getEmployees().subscribe(async employees => {
-            const today = new Date();
-            const month = today.getMonth() + 1;
-            const day = today.getDate();
-
-            const birthdayEmployees = employees.filter(emp => {
-                const dobStr = (emp['date_of_birth'] || emp['birthday']) as string;
-                if (!dobStr) return false;
-                try {
-                    const dob = new Date(dobStr);
-                    return (dob.getMonth() + 1) === month && dob.getDate() === day;
-                } catch { return false; }
-            });
-
-            if (birthdayEmployees.length > 0) {
-                // Check if we already created a notification TODAY for this user
-                const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-
-                const { data: existing } = await supabase
-                    .from('notifications')
-                    .select('id')
-                    .eq('user_id', user.id)
-                    .eq('type', 'birthday')
-                    .gte('created_at', startOfDay);
-
-                if (!existing || existing.length === 0) {
-                    // Insert notifications
-                    const inserts = birthdayEmployees.map(emp => ({
-                        user_id: user.id,
-                        type: 'birthday',
-                        title: '🎉 Birthday Today!',
-                        message: `Today is ${emp.name}'s birthday! Wish them a happy birthday!`,
-                        icon: '🎂',
-                        is_read: false
-                    }));
-
-                    await supabase.from('notifications').insert(inserts);
-                    // Subscription will auto-update UI
-                }
-            }
-        });
+        // PHASE 0: Stubbed out - Firebase implementation pending
+        console.warn('NotificationService.checkForBirthdays() is stubbed - Supabase removed, awaiting Firebase implementation');
     }
 }
